@@ -1,17 +1,11 @@
 //#define USE_SQL_SERVER
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
+using Orleans.Internal;
 using Orleans.Runtime;
 using Orleans.TestingHost;
 using Orleans.TestingHost.Utils;
-using Orleans.Internal;
 using TestExtensions;
 using UnitTests.GrainInterfaces;
 using Xunit;
@@ -59,7 +53,7 @@ namespace UnitTests.TimerTests
             // ReminderTable.Clear() cannot be called from a non-Orleans thread,
             // so we must proxy the call through a grain.
             var controlProxy = this.GrainFactory.GetGrain<IReminderTestGrain2>(Guid.NewGuid());
-            controlProxy.EraseReminderTable().WaitWithThrow(TestConstants.InitTimeout);
+            controlProxy.EraseReminderTable().WaitAsync(TestConstants.InitTimeout).Wait();
         }
 
         public async Task Test_Reminders_Basic_StopByRef()
@@ -72,7 +66,7 @@ namespace UnitTests.TimerTests
             {
                 // First handle should now be out of date once the seconf handle to the same reminder was obtained
                 await grain.StopReminder(r1);
-                Assert.True(false, "Removed reminder1, which shouldn't be possible.");
+                Assert.Fail("Removed reminder1, which shouldn't be possible.");
             }
             catch (Exception exc)
             {
@@ -126,11 +120,11 @@ namespace UnitTests.TimerTests
             // do some time tests as well
             log.LogInformation("Time tests");
             TimeSpan period = await grain.GetReminderPeriod(DR);
-            await Task.Delay(period.Multiply(2) + LEEWAY); // giving some leeway
+            await Task.Delay((period + LEEWAY).Multiply(2)); // giving some leeway, including leeway in each period to minimize flakiness
             for (int i = 0; i < count; i++)
             {
                 long curr = await grain.GetCounter(DR + "_" + i);
-                Assert.Equal(2,  curr);
+                Assert.Equal(2, curr);
             }
         }
 
@@ -144,7 +138,7 @@ namespace UnitTests.TimerTests
 
             TimeSpan period = await g1.GetReminderPeriod(DR);
 
-            Task<bool>[] tasks = 
+            Task<bool>[] tasks =
             {
                 Task.Run(() => this.PerGrainMultiReminderTestChurn(g1)),
                 Task.Run(() => this.PerGrainMultiReminderTestChurn(g2)),
@@ -160,7 +154,7 @@ namespace UnitTests.TimerTests
             await this.HostedCluster.StartAdditionalSilosAsync(1, true);
 
             //Block until all tasks complete.
-            await Task.WhenAll(tasks).WithTimeout(ENDWAIT);
+            await Task.WhenAll(tasks).WaitAsync(ENDWAIT);
         }
 
         public async Task Test_Reminders_ReminderNotFound()
@@ -169,7 +163,7 @@ namespace UnitTests.TimerTests
 
             // request a reminder that does not exist
             IGrainReminder reminder = await g1.GetReminderObject("blarg");
-           Assert.Null(reminder);
+            Assert.Null(reminder);
         }
 
         internal async Task<bool> PerGrainMultiReminderTestChurn(IReminderTestGrain2 g)
@@ -335,12 +329,12 @@ namespace UnitTests.TimerTests
             await grain.StartReminder(DR);
             await Task.Delay(period.Multiply(failCheckAfter) + LEEWAY); // giving some leeway
             long last = await grain.GetCounter(DR);
-            Assert.Equal(failCheckAfter,   last);  // "{0} CopyGrain {1} Reminder {2}" // Time(), grain.GetPrimaryKey(), DR);
+            Assert.Equal(failCheckAfter, last);  // "{0} CopyGrain {1} Reminder {2}" // Time(), grain.GetPrimaryKey(), DR);
 
             await grain.StopReminder(DR);
             await Task.Delay(period.Multiply(2) + LEEWAY); // giving some leeway
             long curr = await grain.GetCounter(DR);
-            Assert.Equal(last,  curr); // "{0} CopyGrain {1} Reminder {2}", Time(), grain.GetPrimaryKey(), DR);
+            Assert.Equal(last, curr); // "{0} CopyGrain {1} Reminder {2}", Time(), grain.GetPrimaryKey(), DR);
 
             return true;
         }
@@ -374,7 +368,7 @@ namespace UnitTests.TimerTests
             {
                 try
                 {
-                    await function(reminderName, period, validate).WithTimeout(TestConstants.InitTimeout);
+                    await function(reminderName, period, validate).WaitAsync(TestConstants.InitTimeout);
                     return; // success ... no need to retry
                 }
                 catch (AggregateException aggEx)
@@ -391,7 +385,7 @@ namespace UnitTests.TimerTests
             }
 
             // execute one last time and bubble up errors if any
-            await function(reminderName, period, validate).WithTimeout(TestConstants.InitTimeout);
+            await function(reminderName, period, validate).WaitAsync(TestConstants.InitTimeout);
         }
 
         // Func<> doesnt take optional parameters, thats why we need a separate method
@@ -401,24 +395,17 @@ namespace UnitTests.TimerTests
             {
                 try
                 {
-                    await function(reminderName).WithTimeout(TestConstants.InitTimeout);
+                    await function(reminderName).WaitAsync(TestConstants.InitTimeout);
                     return; // success ... no need to retry
                 }
-                catch (AggregateException aggEx)
+                catch (Exception exception)
                 {
-                    foreach (var exception in aggEx.InnerExceptions)
-                    {
-                        await HandleError(exception, i);
-                    }
-                }
-                catch (ReminderException exc)
-                {
-                    await HandleError(exc, i);
+                    await HandleError(exception, i);
                 }
             }
 
             // execute one last time and bubble up errors if any
-            await function(reminderName).WithTimeout(TestConstants.InitTimeout);
+            await function(reminderName).WaitAsync(TestConstants.InitTimeout);
         }
 
         private async Task<bool> HandleError(Exception ex, long i)

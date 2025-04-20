@@ -14,10 +14,12 @@ using System.Text;
 using Xunit;
 using Orleans.Serialization.Serializers;
 using Xunit.Abstractions;
-using System.Threading;
 
 namespace Orleans.Serialization.TestKit
 {
+    /// <summary>
+    /// Methods for testing field codecs.
+    /// </summary>
     [Trait("Category", "BVT")]
     [ExcludeFromCodeCoverage]
     public abstract class FieldCodecTester<TValue, TCodec> : IDisposable where TCodec : class, IFieldCodec<TValue>
@@ -25,6 +27,9 @@ namespace Orleans.Serialization.TestKit
         private readonly IServiceProvider _serviceProvider;
         private readonly SerializerSessionPool _sessionPool;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="FieldCodecTester{TValue, TCodec}"/> class.
+        /// </summary>
         protected FieldCodecTester(ITestOutputHelper output)
         {
 #if NET6_0_OR_GREATER
@@ -48,27 +53,66 @@ namespace Orleans.Serialization.TestKit
             _sessionPool = _serviceProvider.GetService<SerializerSessionPool>();
         }
 
+        /// <summary>
+        /// Gets the random number generator.
+        /// </summary>
         protected Random Random { get; }
 
+        /// <summary>
+        /// Gets the service provider.
+        /// </summary>
         protected IServiceProvider ServiceProvider => _serviceProvider;
 
+        /// <summary>
+        /// Gets the session pool.
+        /// </summary>
         protected SerializerSessionPool SessionPool => _sessionPool;
 
-        protected virtual int[] MaxSegmentSizes => new[] { 16 };
+        /// <summary>
+        /// Gets the maximum segment sizes for buffer testing.
+        /// </summary>
+        protected virtual int[] MaxSegmentSizes => [16];
 
+        /// <summary>
+        /// Configures the serializer.
+        /// </summary>
         protected virtual void Configure(ISerializerBuilder builder)
         {
         }
 
+        /// <summary>
+        /// Creates a codec.
+        /// </summary>
         protected virtual TCodec CreateCodec() => _serviceProvider.GetRequiredService<TCodec>();
+
+        /// <summary>
+        /// Creates a value.
+        /// </summary>
         protected abstract TValue CreateValue();
+
+        /// <summary>
+        /// Gets test values.
+        /// </summary>
         protected abstract TValue[] TestValues { get; }
+
+        /// <summary>
+        /// Compares two values for equality.
+        /// </summary>
         protected virtual bool Equals(TValue left, TValue right) => EqualityComparer<TValue>.Default.Equals(left, right);
 
+        /// <summary>
+        /// Gets a value provider delegate.
+        /// </summary>
         protected virtual Action<Action<TValue>> ValueProvider { get; }
 
+        /// <inheritdoc/>
         void IDisposable.Dispose() => (_serviceProvider as IDisposable)?.Dispose();
 
+        protected virtual TValue GetWriteCopy(TValue input) => input;
+
+        /// <summary>
+        /// Checks whether the codec correctly advances the reference counter when writing to a stream and reading from a stream.
+        /// </summary>
         [Fact]
         public void CorrectlyAdvancesReferenceCounterStream()
         {
@@ -122,6 +166,9 @@ namespace Orleans.Serialization.TestKit
             }
         }
 
+        /// <summary>
+        /// Checks whether the codec correctly advances the reference counter when writing to a pipe and reading from a pipe.
+        /// </summary>
         [Fact]
         public void CorrectlyAdvancesReferenceCounter()
         {
@@ -166,6 +213,9 @@ namespace Orleans.Serialization.TestKit
             Assert.True(beforeReference < afterReference, $"Reading a field should result in at least one reference being marked in the session. Before: {beforeReference}, After: {afterReference}");
         }
 
+        /// <summary>
+        /// Checks whether the codec correctly round-trips values when using a pooled stream.
+        /// </summary>
         [Fact]
         public void CanRoundTripViaSerializer_StreamPooled()
         {
@@ -183,12 +233,13 @@ namespace Orleans.Serialization.TestKit
 
             void Test(TValue original)
             {
+                var toWrite = GetWriteCopy(original);
                 var buffer = new MemoryStream();
 
                 var writer = Writer.CreatePooled(buffer, _sessionPool.GetSession());
-                serializer.Serialize(original, ref writer);
+                serializer.Serialize(toWrite, ref writer);
                 buffer.Flush();
-                writer.Output.Dispose();
+                writer.Dispose();
 
                 buffer.Position = 0;
                 var reader = Reader.Create(buffer, _sessionPool.GetSession());
@@ -200,6 +251,9 @@ namespace Orleans.Serialization.TestKit
             }
         }
 
+        /// <summary>
+        /// Checks whether the codec correctly round-trips values when writing to a span.
+        /// </summary>
         [Fact]
         public void CanRoundTripViaSerializer_Span()
         {
@@ -218,9 +272,10 @@ namespace Orleans.Serialization.TestKit
             void Test(TValue original)
             {
                 var buffer = new byte[8096].AsSpan();
+                var toWrite = GetWriteCopy(original);
 
                 var writer = Writer.Create(buffer, _sessionPool.GetSession());
-                serializer.Serialize(original, ref writer);
+                serializer.Serialize(toWrite, ref writer);
 
                 var reader = Reader.Create(buffer, _sessionPool.GetSession());
                 var deserialized = serializer.Deserialize(ref reader);
@@ -232,6 +287,9 @@ namespace Orleans.Serialization.TestKit
             }
         }
 
+        /// <summary>
+        /// Checks whether the codec correctly round-trips values when writing to an array.
+        /// </summary>
         [Fact]
         public void CanRoundTripViaSerializer_Array()
         {
@@ -250,9 +308,10 @@ namespace Orleans.Serialization.TestKit
             void Test(TValue original)
             {
                 var buffer = new byte[8096];
+                var toWrite = GetWriteCopy(original);
 
                 var writer = Writer.Create(buffer, _sessionPool.GetSession());
-                serializer.Serialize(original, ref writer);
+                serializer.Serialize(toWrite, ref writer);
 
                 var reader = Reader.Create(buffer, _sessionPool.GetSession());
                 var deserialized = serializer.Deserialize(ref reader);
@@ -264,6 +323,9 @@ namespace Orleans.Serialization.TestKit
             }
         }
 
+        /// <summary>
+        /// Checks whether the codec correctly round-trips values when writing to a memory slice.
+        /// </summary>
         [Fact]
         public void CanRoundTripViaSerializer_Memory()
         {
@@ -282,9 +344,10 @@ namespace Orleans.Serialization.TestKit
             void Test(TValue original)
             {
                 var buffer = (new byte[8096]).AsMemory();
+                var toWrite = GetWriteCopy(original);
 
                 var writer = Writer.Create(buffer, _sessionPool.GetSession());
-                serializer.Serialize(original, ref writer);
+                serializer.Serialize(toWrite, ref writer);
 
                 var reader = Reader.Create(buffer, _sessionPool.GetSession());
                 var deserialized = serializer.Deserialize(ref reader);
@@ -296,6 +359,9 @@ namespace Orleans.Serialization.TestKit
             }
         }
 
+        /// <summary>
+        /// Checks whether the codec correctly round-trips values when writing to a memory stream.
+        /// </summary>
         [Fact]
         public void CanRoundTripViaSerializer_MemoryStream()
         {
@@ -313,10 +379,11 @@ namespace Orleans.Serialization.TestKit
 
             void Test(TValue original)
             {
+                var toWrite = GetWriteCopy(original);
                 var buffer = new MemoryStream();
                 using var writerSession = _sessionPool.GetSession();
                 var writer = Writer.Create(buffer, writerSession);
-                serializer.Serialize(original, ref writer);
+                serializer.Serialize(toWrite, ref writer);
                 writer.Commit();
                 buffer.Flush();
                 buffer.SetLength(buffer.Position);
@@ -335,6 +402,9 @@ namespace Orleans.Serialization.TestKit
             }
         }
 
+        /// <summary>
+        /// Checks whether the codec correctly round-trips values when reading byte-by-byte, simulating fragmented reads.
+        /// </summary>
         [Fact]
         public void CanRoundTripViaSerializer_ReadByteByByte()
         {
@@ -352,10 +422,11 @@ namespace Orleans.Serialization.TestKit
 
             void Test(TValue original)
             {
+                var toWrite = GetWriteCopy(original);
                 var buffer = new TestMultiSegmentBufferWriter(maxAllocationSize: 1024);
                 using var writerSession = _sessionPool.GetSession();
                 var writer = Writer.Create(buffer, writerSession);
-                serializer.Serialize(original, ref writer);
+                serializer.Serialize(toWrite, ref writer);
                 writer.Commit();
                 using var readerSession = _sessionPool.GetSession();
                 var reader = Reader.Create(buffer.GetReadOnlySequence(maxSegmentSize: 1), readerSession);
@@ -370,6 +441,9 @@ namespace Orleans.Serialization.TestKit
             }
         }
 
+        /// <summary>
+        /// Checks whether the codec produces a valid bit stream.
+        /// </summary>
         [Fact]
         public void ProducesValidBitStream()
         {
@@ -402,6 +476,9 @@ namespace Orleans.Serialization.TestKit
             }
         }
 
+        /// <summary>
+        /// Checks whether various buffer writers produce bit-wise identical results.
+        /// </summary>
         [Fact]
         public void WritersProduceSameResults()
         {
@@ -424,14 +501,14 @@ namespace Orleans.Serialization.TestKit
                 {
                     var buffer = new TestMultiSegmentBufferWriter(1024);
                     var writer = Writer.Create(buffer, _sessionPool.GetSession());
-                    serializer.Serialize(original, ref writer);
+                    serializer.Serialize(GetWriteCopy(original), ref writer);
                     expected = buffer.GetReadOnlySequence(0).ToArray();
                 }
 
                 {
                     var buffer = new MemoryStream();
                     var writer = Writer.Create(buffer, _sessionPool.GetSession());
-                    serializer.Serialize(original, ref writer);
+                    serializer.Serialize(GetWriteCopy(original), ref writer);
                     buffer.Flush();
                     buffer.SetLength(buffer.Position);
                     buffer.Position = 0;
@@ -441,7 +518,7 @@ namespace Orleans.Serialization.TestKit
 
                 {
                     var writer = Writer.CreatePooled(_sessionPool.GetSession());
-                    serializer.Serialize(original, ref writer);
+                    serializer.Serialize(GetWriteCopy(original), ref writer);
                     var result = writer.Output.ToArray();
                     Assert.Equal(expected, result);
                 }
@@ -451,8 +528,8 @@ namespace Orleans.Serialization.TestKit
                 {
                     var buffer = bytes.AsMemory();
                     var writer = Writer.Create(buffer, _sessionPool.GetSession());
-                    serializer.Serialize(original, ref writer);
-                    var result = buffer.Slice(0, writer.Output.BytesWritten).ToArray();
+                    serializer.Serialize(GetWriteCopy(original), ref writer);
+                    var result = buffer[..writer.Output.BytesWritten].ToArray();
                     Assert.Equal(expected, result);
                 }
 
@@ -461,8 +538,8 @@ namespace Orleans.Serialization.TestKit
                 {
                     var buffer = bytes.AsSpan();
                     var writer = Writer.Create(buffer, _sessionPool.GetSession());
-                    serializer.Serialize(original, ref writer);
-                    var result = buffer.Slice(0, writer.Output.BytesWritten).ToArray();
+                    serializer.Serialize(GetWriteCopy(original), ref writer);
+                    var result = buffer[..writer.Output.BytesWritten].ToArray();
                     Assert.Equal(expected, result);
                 }
 
@@ -471,7 +548,7 @@ namespace Orleans.Serialization.TestKit
                 {
                     var buffer = bytes;
                     var writer = Writer.Create(buffer, _sessionPool.GetSession());
-                    serializer.Serialize(original, ref writer);
+                    serializer.Serialize(GetWriteCopy(original), ref writer);
                     var result = buffer.AsSpan(0, writer.Output.BytesWritten).ToArray();
                     Assert.Equal(expected, result);
                 }
@@ -481,12 +558,12 @@ namespace Orleans.Serialization.TestKit
                 {
                     var buffer = new MemoryStream(bytes);
                     var writer = Writer.CreatePooled(buffer, _sessionPool.GetSession());
-                    serializer.Serialize(original, ref writer);
+                    serializer.Serialize(GetWriteCopy(original), ref writer);
                     buffer.Flush();
                     buffer.SetLength(buffer.Position);
                     buffer.Position = 0;
                     var result = buffer.ToArray();
-                    writer.Output.Dispose();
+                    writer.Dispose();
                     Assert.Equal(expected, result);
                 }
 
@@ -495,7 +572,7 @@ namespace Orleans.Serialization.TestKit
                 {
                     var buffer = new MemoryStream(bytes);
                     var writer = Writer.Create((Stream)buffer, _sessionPool.GetSession());
-                    serializer.Serialize(original, ref writer);
+                    serializer.Serialize(GetWriteCopy(original), ref writer);
                     buffer.Flush();
                     buffer.SetLength(buffer.Position);
                     buffer.Position = 0;
@@ -505,23 +582,35 @@ namespace Orleans.Serialization.TestKit
             }
         }
 
+        /// <summary>
+        /// Checks whether a strongly typed collection of values can be round-tripped.
+        /// </summary>
         [Fact]
         public void CanRoundTripCollectionViaSerializer()
         {
             var serializer = _serviceProvider.GetRequiredService<Serializer<List<TValue>>>();
 
             var original = new List<TValue>();
+            var originalCopy = new List<TValue>();
             original.AddRange(TestValues);
+            foreach (var value in original)
+            {
+                originalCopy.Add(GetWriteCopy(value));
+            }
+
             for (var i = 0; i < 5; i++)
             {
-                original.Add(CreateValue());
+                var o = CreateValue();
+                var c = GetWriteCopy(o);
+                original.Add(o);
+                originalCopy.Add(c);
             }
 
             using var writerSession = _sessionPool.GetSession();
             var writer = Writer.CreatePooled(writerSession);
-            serializer.Serialize(original, ref writer);
+            serializer.Serialize(originalCopy, ref writer);
             using var readerSession = _sessionPool.GetSession();
-            var reader = Reader.Create(writer.Output.AsReadOnlySequence(), readerSession);
+            var reader = Reader.Create(writer.Output, readerSession);
             var deserialized = serializer.Deserialize(ref reader);
 
             Assert.Equal(original.Count, deserialized.Count);
@@ -530,155 +619,103 @@ namespace Orleans.Serialization.TestKit
                 var isEqual = Equals(original[i], deserialized[i]);
                 Assert.True(
                     isEqual,
-                    isEqual ? string.Empty : $"Deserialized value at index {i}, \"{deserialized}\", must equal original value, \"{original}\"");
+                    isEqual ? string.Empty : $"Deserialized value at index {i}, \"{deserialized[i]}\", must equal original value, \"{original[i]}\"");
             }
 
             Assert.Equal(writer.Position, reader.Position);
             Assert.Equal(writerSession.ReferencedObjects.CurrentReferenceId, readerSession.ReferencedObjects.CurrentReferenceId);
         }
 
+        /// <summary>
+        /// Checks whether a strongly typed collection of values can be round-tripped.
+        /// </summary>
         [Fact]
-        public void CanCopyCollectionViaSerializer()
+        public void CanRoundTripWeaklyTypedCollectionViaSerializer()
         {
-            var copier = _serviceProvider.GetRequiredService<DeepCopier<List<TValue>>>();
-
-            var original = new List<TValue>();
-            original.AddRange(TestValues);
-            for (var i = 0; i < 5; i++)
-            {
-                original.Add(CreateValue());
-            }
-
-            var copy = copier.Copy(original);
-
-            Assert.Equal(original.Count, copy.Count);
-            for (var i = 0; i < original.Count; ++i)
-            {
-                var isEqual = Equals(original[i], copy[i]);
-                Assert.True(
-                    isEqual,
-                    isEqual ? string.Empty : $"Copied value at index {i}, \"{copy}\", must equal original value, \"{original}\"");
-            }
-        }
-
-        [Fact]
-        public void CanCopyCollectionViaUntypedSerializer()
-        {
-            var copier = _serviceProvider.GetRequiredService<DeepCopier<List<object>>>();
+            var serializer = _serviceProvider.GetRequiredService<Serializer<List<object>>>();
 
             var original = new List<object>();
+            var originalCopy = new List<object>();
             foreach (var value in TestValues)
             {
-                original.Add(value);
+                var o = value;
+                var c = GetWriteCopy(o);
+                original.Add(o);
+                originalCopy.Add(c);
             }
 
             for (var i = 0; i < 5; i++)
             {
-                original.Add(CreateValue());
+                var o = CreateValue();
+                var c = GetWriteCopy(o);
+                original.Add(o);
+                originalCopy.Add(c);
             }
 
-            var copy = copier.Copy(original);
+            using var writerSession = _sessionPool.GetSession();
+            var writer = Writer.CreatePooled(writerSession);
+            serializer.Serialize(originalCopy, ref writer);
+            using var readerSession = _sessionPool.GetSession();
+            var reader = Reader.Create(writer.Output, readerSession);
+            var deserialized = serializer.Deserialize(ref reader);
 
-            Assert.Equal(original.Count, copy.Count);
+            Assert.Equal(original.Count, deserialized.Count);
             for (var i = 0; i < original.Count; ++i)
             {
-                var isEqual = Equals((TValue)original[i], (TValue)copy[i]);
+                var left = (TValue)original[i];
+                var right = (TValue)deserialized[i];
+                var isEqual = Equals(left, right);
                 Assert.True(
                     isEqual,
-                    isEqual ? string.Empty : $"Copied value at index {i}, \"{copy}\", must equal original value, \"{original}\"");
+                    isEqual ? string.Empty : $"Deserialized value at index {i}, \"{right}\", must equal original value, \"{left}\"");
             }
+
+            Assert.Equal(writer.Position, reader.Position);
+            Assert.Equal(writerSession.ReferencedObjects.CurrentReferenceId, readerSession.ReferencedObjects.CurrentReferenceId);
         }
 
-        [Fact]
-        public void CanCopyTupleViaSerializer_Untyped()
-        {
-            var copier = _serviceProvider.GetRequiredService<DeepCopier<(string, object, object, string)>>();
-            var value = TestValues.Reverse().Concat(new[] { CreateValue(), CreateValue() }).Take(2).ToArray();
-
-            var original = (Guid.NewGuid().ToString(), (object)value[0], (object)value[1], Guid.NewGuid().ToString());
-
-            var copy = copier.Copy(original);
-
-            var isEqual = Equals(original.Item1, copy.Item1);
-            Assert.True(
-                isEqual,
-                isEqual ? string.Empty : $"Copied value for item 1, \"{copy.Item1}\", must equal original value, \"{original.Item1}\"");
-            isEqual = Equals((TValue)original.Item2, (TValue)copy.Item2);
-            Assert.True(
-                isEqual,
-                isEqual ? string.Empty : $"Copied value for item 2, \"{copy.Item2}\", must equal original value, \"{original.Item2}\"");
-            isEqual = Equals((TValue)original.Item3, (TValue)copy.Item3);
-            Assert.True(
-                isEqual,
-                isEqual ? string.Empty : $"Copied value for item 3, \"{copy.Item3}\", must equal original value, \"{original.Item3}\"");
-            isEqual = Equals(original.Item4, copy.Item4);
-            Assert.True(
-                isEqual,
-                isEqual ? string.Empty : $"Copied value for item 4, \"{copy.Item4}\", must equal original value, \"{original.Item4}\"");
-        }
-
-        [Fact]
-        public void CanCopyTupleViaSerializer()
-        {
-            var copier = _serviceProvider.GetRequiredService<DeepCopier<(string, TValue, TValue, string)>>();
-
-            var original = (Guid.NewGuid().ToString(), CreateValue(), CreateValue(), Guid.NewGuid().ToString());
-
-            var copy = copier.Copy(original);
-
-            var isEqual = Equals(original.Item1, copy.Item1);
-            Assert.True(
-                isEqual,
-                isEqual ? string.Empty : $"Copied value for item 1, \"{copy}\", must equal original value, \"{original}\"");
-            isEqual = Equals(original.Item2, copy.Item2);
-            Assert.True(
-                isEqual,
-                isEqual ? string.Empty : $"Copied value for item 2, \"{copy}\", must equal original value, \"{original}\"");
-            isEqual = Equals(original.Item3, copy.Item3);
-            Assert.True(
-                isEqual,
-                isEqual ? string.Empty : $"Copied value for item 3, \"{copy}\", must equal original value, \"{original}\"");
-            isEqual = Equals(original.Item4, copy.Item4);
-            Assert.True(
-                isEqual,
-                isEqual ? string.Empty : $"Copied value for item 4, \"{copy}\", must equal original value, \"{original}\"");
-        }
-
+        /// <summary>
+        /// Checks if values can be round-tripped when used as a field in a tuple.
+        /// </summary>
         [Fact]
         public void CanRoundTripTupleViaSerializer()
         {
             var serializer = _serviceProvider.GetRequiredService<Serializer<(string, TValue, TValue, string)>>();
 
             var original = (Guid.NewGuid().ToString(), CreateValue(), CreateValue(), Guid.NewGuid().ToString());
+            var originalCopy = (original.Item1, GetWriteCopy(original.Item2), GetWriteCopy(original.Item3), original.Item4);
 
             using var writerSession = _sessionPool.GetSession();
             var writer = Writer.CreatePooled(writerSession);
-            serializer.Serialize(original, ref writer);
+            serializer.Serialize(originalCopy, ref writer);
             using var readerSession = _sessionPool.GetSession();
-            var reader = Reader.Create(writer.Output.AsReadOnlySequence(), readerSession);
+            var reader = Reader.Create(writer.Output, readerSession);
             var deserialized = serializer.Deserialize(ref reader);
 
             var isEqual = Equals(original.Item1, deserialized.Item1);
             Assert.True(
                 isEqual,
-                isEqual ? string.Empty : $"Deserialized value for item 1, \"{deserialized}\", must equal original value, \"{original}\"");
+                isEqual ? string.Empty : $"Deserialized value for item 1, \"{deserialized.Item1}\", must equal original value, \"{original.Item1}\"");
             isEqual = Equals(original.Item2, deserialized.Item2);
             Assert.True(
                 isEqual,
-                isEqual ? string.Empty : $"Deserialized value for item 2, \"{deserialized}\", must equal original value, \"{original}\"");
+                isEqual ? string.Empty : $"Deserialized value for item 2, \"{deserialized.Item2}\", must equal original value, \"{original.Item2}\"");
             isEqual = Equals(original.Item3, deserialized.Item3);
             Assert.True(
                 isEqual,
-                isEqual ? string.Empty : $"Deserialized value for item 3, \"{deserialized}\", must equal original value, \"{original}\"");
+                isEqual ? string.Empty : $"Deserialized value for item 3, \"{deserialized.Item3}\", must equal original value, \"{original.Item3}\"");
             isEqual = Equals(original.Item4, deserialized.Item4);
             Assert.True(
                 isEqual,
-                isEqual ? string.Empty : $"Deserialized value for item 4, \"{deserialized}\", must equal original value, \"{original}\"");
+                isEqual ? string.Empty : $"Deserialized value for item 4, \"{deserialized.Item4}\", must equal original value, \"{original.Item4}\"");
 
             Assert.Equal(writer.Position, reader.Position);
             Assert.Equal(writerSession.ReferencedObjects.CurrentReferenceId, readerSession.ReferencedObjects.CurrentReferenceId);
         }
 
+        /// <summary>
+        /// Checks if values can be round-tripped through <see cref="Serializer{T}"/> when using <typeparamref name="TValue"/> as the type parameter.
+        /// </summary>
         [Fact]
         public void CanRoundTripViaSerializer()
         {
@@ -696,10 +733,11 @@ namespace Orleans.Serialization.TestKit
 
             void Test(TValue original)
             {
+                var toWrite = GetWriteCopy(original);
                 var buffer = new TestMultiSegmentBufferWriter(1024);
                 using var writerSession = _sessionPool.GetSession();
                 var writer = Writer.Create(buffer, writerSession);
-                serializer.Serialize(original, ref writer);
+                serializer.Serialize(toWrite, ref writer);
                 using var readerSession = _sessionPool.GetSession();
                 var reader = Reader.Create(buffer.GetReadOnlySequence(0), readerSession);
                 var deserialized = serializer.Deserialize(ref reader);
@@ -713,6 +751,9 @@ namespace Orleans.Serialization.TestKit
             }
         }
 
+        /// <summary>
+        /// Checks if values can be round-tripped through <see cref="Serializer{T}"/> when using <see cref="object"/> as the type parameter.
+        /// </summary>
         [Fact]
         public void CanRoundTripViaObjectSerializer()
         {
@@ -723,9 +764,10 @@ namespace Orleans.Serialization.TestKit
             foreach (var original in TestValues)
             {
                 buffer.AsSpan().Clear();
+                var toWrite = GetWriteCopy(original);
                 using var writerSession = _sessionPool.GetSession();
                 var writer = Writer.Create(buffer, writerSession);
-                serializer.Serialize(original, ref writer);
+                serializer.Serialize(toWrite, ref writer);
 
                 using var readerSession = _sessionPool.GetSession();
                 var reader = Reader.Create(buffer, readerSession);
@@ -756,18 +798,33 @@ namespace Orleans.Serialization.TestKit
             }
         }
 
+        /// <summary>
+        /// Checks if round-tripped values are equal.
+        /// </summary>
         [Fact]
         public void RoundTrippedValuesEqual() => TestRoundTrippedValue(CreateValue());
 
+        /// <summary>
+        /// Checks if round-tripped default values are equal.
+        /// </summary>
         [Fact]
         public void CanRoundTripDefaultValueViaCodec() => TestRoundTrippedValue(default);
 
+        /// <summary>
+        /// Checks if values can be skipped over.
+        /// </summary>
         [Fact]
         public void CanSkipValue() => CanBeSkipped(default);
 
+        /// <summary>
+        /// Checks if default values can be skipped over.
+        /// </summary>
         [Fact]
         public void CanSkipDefaultValue() => CanBeSkipped(default);
 
+        /// <summary>
+        /// Checks if buffers are handled correctly.
+        /// </summary>
         [Fact]
         public void CorrectlyHandlesBuffers()
         {
@@ -779,7 +836,8 @@ namespace Orleans.Serialization.TestKit
                 {
                     foreach (var value in TestValues)
                     {
-                        var buffer = tester.Serialize(value);
+                        var toWrite = GetWriteCopy(value);
+                        var buffer = tester.Serialize(toWrite);
                         var sequence = buffer.GetReadOnlySequence(maxSegmentSize);
                         tester.Deserialize(sequence, out var output);
                         var bufferWriterType = tester.GetType().BaseType?.GenericTypeArguments[1];
@@ -799,7 +857,8 @@ namespace Orleans.Serialization.TestKit
             using var writerSession = _sessionPool.GetSession();
             var writer = Writer.Create(pipe.Writer, writerSession);
             var writerCodec = CreateCodec();
-            writerCodec.WriteField(ref writer, 0, typeof(TValue), original);
+            var toWrite = GetWriteCopy(original);
+            writerCodec.WriteField(ref writer, 0, typeof(TValue), toWrite);
             var expectedLength = writer.Position;
             writer.Commit();
             _ = pipe.Writer.FlushAsync().AsTask().GetAwaiter().GetResult();
@@ -837,7 +896,7 @@ namespace Orleans.Serialization.TestKit
             using var writerSession = _sessionPool.GetSession();
             var writer = Writer.Create(pipe.Writer, writerSession);
             var writerCodec = CreateCodec();
-            writerCodec.WriteField(ref writer, 0, typeof(TValue), original);
+            writerCodec.WriteField(ref writer, 0, typeof(TValue), GetWriteCopy(original));
             writer.Commit();
             _ = pipe.Writer.FlushAsync().AsTask().GetAwaiter().GetResult();
             pipe.Writer.Complete();
@@ -857,63 +916,71 @@ namespace Orleans.Serialization.TestKit
             Assert.Equal(writerSession.ReferencedObjects.CurrentReferenceId, readerSession.ReferencedObjects.CurrentReferenceId);
         }
 
+        /// <summary>
+        /// Round-trips a value through the codec.
+        /// </summary>
         protected T RoundTripThroughCodec<T>(T original)
         {
             T result;
-            var pipe = new Pipe();
             using (var readerSession = SessionPool.GetSession())
             using (var writeSession = SessionPool.GetSession())
             {
-                var writer = Writer.Create(pipe.Writer, writeSession);
-                var codec = ServiceProvider.GetRequiredService<ICodecProvider>().GetCodec<T>();
-                codec.WriteField(
-                    ref writer,
-                    0,
-                    null,
-                    original);
-                writer.Commit();
-                _ = pipe.Writer.FlushAsync().AsTask().GetAwaiter().GetResult();
-                pipe.Writer.Complete();
+                var writer = Writer.CreatePooled(writeSession);
+                try
+                {
+                    var codec = ServiceProvider.GetRequiredService<ICodecProvider>().GetCodec<T>();
+                    codec.WriteField(
+                        ref writer,
+                        0,
+                        null,
+                        original);
+                    writer.Commit();
 
-                _ = pipe.Reader.TryRead(out var readResult);
-                var reader = Reader.Create(readResult.Buffer, readerSession);
+                    var output = writer.Output.AsReadOnlySequence();
+                    var reader = Reader.Create(output, readerSession);
 
-                var previousPos = reader.Position;
-                var initialHeader = reader.ReadFieldHeader();
-                Assert.True(reader.Position > previousPos);
+                    var previousPos = reader.Position;
+                    var initialHeader = reader.ReadFieldHeader();
+                    Assert.True(reader.Position > previousPos);
 
-                result = codec.ReadValue(ref reader, initialHeader);
-                pipe.Reader.AdvanceTo(readResult.Buffer.End);
-                pipe.Reader.Complete();
+                    result = codec.ReadValue(ref reader, initialHeader);
+                }
+                finally
+                {
+                    writer.Dispose();
+                }
             }
 
             return result;
         }
 
+        /// <summary>
+        /// Round-trips a value through an untyped serializer.
+        /// </summary>
         protected object RoundTripThroughUntypedSerializer(object original, out string formattedBitStream)
         {
-            var pipe = new Pipe();
             object result;
             using (var readerSession = SessionPool.GetSession())
             using (var writeSession = SessionPool.GetSession())
             {
-                var writer = Writer.Create(pipe.Writer, writeSession);
-                var serializer = ServiceProvider.GetService<Serializer<object>>();
-                serializer.Serialize(original, ref writer);
+                var writer = Writer.CreatePooled(writeSession);
+                try
+                {
+                    var serializer = ServiceProvider.GetService<Serializer<object>>();
+                    serializer.Serialize(original, ref writer);
 
-                _ = pipe.Writer.FlushAsync().AsTask().GetAwaiter().GetResult();
-                pipe.Writer.Complete();
+                    using var analyzerSession = SessionPool.GetSession();
+                    var output = writer.Output.Slice();
+                    formattedBitStream = BitStreamFormatter.Format(output, analyzerSession);
 
-                _ = pipe.Reader.TryRead(out var readResult);
+                    var reader = Reader.Create(output, readerSession);
 
-                using var analyzerSession = SessionPool.GetSession();
-                formattedBitStream = BitStreamFormatter.Format(readResult.Buffer, analyzerSession);
-
-                var reader = Reader.Create(readResult.Buffer, readerSession);
-
-                result = serializer.Deserialize(ref reader);
-                pipe.Reader.AdvanceTo(readResult.Buffer.End);
-                pipe.Reader.Complete();
+                    result = serializer.Deserialize(ref reader);
+                }
+                finally
+                {
+                    writer.Dispose();
+                }
             }
 
             return result;

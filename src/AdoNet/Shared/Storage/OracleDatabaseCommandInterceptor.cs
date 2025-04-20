@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Data;
 using System.Linq.Expressions;
 
@@ -8,6 +8,8 @@ namespace Orleans.Clustering.AdoNet.Storage
 namespace Orleans.Persistence.AdoNet.Storage
 #elif REMINDERS_ADONET
 namespace Orleans.Reminders.AdoNet.Storage
+#elif STREAMING_ADONET
+namespace Orleans.Streaming.AdoNet.Storage
 #elif TESTER_SQLUTILS
 namespace Orleans.Tests.SqlUtils
 #else
@@ -59,7 +61,7 @@ namespace Orleans.Tests.SqlUtils
         /// </summary>
         /// <param name="enumName">String value of a OracleDbType enum value.</param>
         /// <returns>An action which takes a OracleParameter as IDbDataParameter.</returns>
-        private Action<IDbDataParameter> BuildSetOracleDbTypeAction(string enumName)
+        private static Action<IDbDataParameter> BuildSetOracleDbTypeAction(string enumName)
         {
             var type = Type.GetType("Oracle.ManagedDataAccess.Client.OracleParameter, Oracle.ManagedDataAccess");
 
@@ -116,7 +118,7 @@ namespace Orleans.Tests.SqlUtils
                 //we map these to DbType.Int32
                 if (commandParameter.DbType == DbType.Boolean)
                 {
-                    commandParameter.Value = commandParameter.ToString() == Boolean.TrueString ? 1 : 0;
+                    commandParameter.Value = commandParameter.ToString() == bool.TrueString ? 1 : 0;
                     commandParameter.DbType = DbType.Int32;
                 }
             }

@@ -33,7 +33,7 @@ namespace Orleans.Streaming.EventHubs
         public string Partition { get; set; }
     }
 
-    internal class EventHubAdapterReceiver : IQueueAdapterReceiver, IQueueCache
+    internal partial class EventHubAdapterReceiver : IQueueAdapterReceiver, IQueueCache
     {
         public const int MaxMessagesPerRead = 1000;
         private static readonly TimeSpan ReceiveTimeout = TimeSpan.FromSeconds(5);
@@ -45,12 +45,12 @@ namespace Orleans.Streaming.EventHubs
         private readonly ILogger logger;
         private readonly IQueueAdapterReceiverMonitor monitor;
         private readonly LoadSheddingOptions loadSheddingOptions;
-        private readonly IHostEnvironmentStatistics _hostEnvironmentStatistics;
+        private readonly IEnvironmentStatisticsProvider environmentStatisticsProvider;
         private IEventHubQueueCache cache;
 
         private IEventHubReceiver receiver;
 
-        private Func<EventHubPartitionSettings, string, ILogger, IEventHubReceiver> eventHubReceiverFactory;
+        private readonly Func<EventHubPartitionSettings, string, ILogger, IEventHubReceiver> eventHubReceiverFactory;
 
         private IStreamQueueCheckpointer<string> checkpointer;
         private AggregatedQueueFlowController flowController;
@@ -72,7 +72,7 @@ namespace Orleans.Streaming.EventHubs
             ILoggerFactory loggerFactory,
             IQueueAdapterReceiverMonitor monitor,
             LoadSheddingOptions loadSheddingOptions,
-            IHostEnvironmentStatistics hostEnvironmentStatistics,
+            IEnvironmentStatisticsProvider environmentStatisticsProvider,
             Func<EventHubPartitionSettings, string, ILogger, IEventHubReceiver> eventHubReceiverFactory = null)
         {
             this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -82,13 +82,13 @@ namespace Orleans.Streaming.EventHubs
             this.logger = this.loggerFactory.CreateLogger<EventHubAdapterReceiver>();
             this.monitor = monitor ?? throw new ArgumentNullException(nameof(monitor));
             this.loadSheddingOptions = loadSheddingOptions ?? throw new ArgumentNullException(nameof(loadSheddingOptions));
-            _hostEnvironmentStatistics = hostEnvironmentStatistics;
+            this.environmentStatisticsProvider = environmentStatisticsProvider;
             this.eventHubReceiverFactory = eventHubReceiverFactory == null ? EventHubAdapterReceiver.CreateReceiver : eventHubReceiverFactory;
         }
 
         public Task Initialize(TimeSpan timeout)
         {
-            this.logger.LogInformation("Initializing EventHub partition {EventHubName}-{Partition}.", this.settings.Hub.EventHubName, this.settings.Partition);
+            LogInfoInitializingEventHubPartition(this.settings.Hub.EventHubName, this.settings.Partition);
 
             // if receiver was already running, do nothing
             return ReceiverRunning == Interlocked.Exchange(ref this.receiverState, ReceiverRunning)
@@ -113,7 +113,7 @@ namespace Orleans.Streaming.EventHubs
                     this.cache = null;
                 }
                 this.cache = this.cacheFactory(this.settings.Partition, this.checkpointer, this.loggerFactory);
-                this.flowController = new AggregatedQueueFlowController(MaxMessagesPerRead) { this.cache, LoadShedQueueFlowController.CreateAsPercentOfLoadSheddingLimit(this.loadSheddingOptions, _hostEnvironmentStatistics) };
+                this.flowController = new AggregatedQueueFlowController(MaxMessagesPerRead) { this.cache, LoadShedQueueFlowController.CreateAsPercentOfLoadSheddingLimit(this.loadSheddingOptions, environmentStatisticsProvider) };
                 string offset = await this.checkpointer.Load();
                 this.receiver = this.eventHubReceiverFactory(this.settings, offset, this.logger);
                 watch.Stop();
@@ -137,8 +137,7 @@ namespace Orleans.Streaming.EventHubs
             // if receiver initialization failed, retry
             if (this.receiver == null)
             {
-                this.logger.Warn(OrleansEventHubErrorCode.FailedPartitionRead,
-                    "Retrying initialization of EventHub partition {0}-{1}.", this.settings.Hub.EventHubName, this.settings.Partition);
+                LogWarningRetryingInitializationOfEventHubPartition(this.settings.Hub.EventHubName, this.settings.Partition);
                 await Initialize();
                 if (this.receiver == null)
                 {
@@ -160,9 +159,7 @@ namespace Orleans.Streaming.EventHubs
             {
                 watch.Stop();
                 this.monitor?.TrackRead(false, watch.Elapsed, ex);
-                this.logger.Warn(OrleansEventHubErrorCode.FailedPartitionRead,
-                    "Failed to read from EventHub partition {0}-{1}. : Exception: {2}.", this.settings.Hub.EventHubName,
-                    this.settings.Partition, ex);
+                LogWarningFailedToReadFromEventHubPartition(this.settings.Hub.EventHubName, this.settings.Partition, ex);
                 throw;
             }
 
@@ -237,7 +234,7 @@ namespace Orleans.Streaming.EventHubs
                     return;
                 }
 
-                this.logger.LogInformation("Stopping reading from EventHub partition {EventHubName}-{Partition}", this.settings.Hub.EventHubName, this.settings.Partition);
+                LogInfoStoppingReadingFromEventHubPartition(this.settings.Hub.EventHubName, this.settings.Partition);
 
                 // clear cache and receiver
                 IEventHubQueueCache localCache = Interlocked.Exchange(ref this.cache, null);
@@ -345,5 +342,31 @@ namespace Orleans.Streaming.EventHubs
             {
             }
         }
+
+        [LoggerMessage(
+            Level = LogLevel.Information,
+            Message = "Initializing EventHub partition {EventHubName}-{Partition}."
+        )]
+        private partial void LogInfoInitializingEventHubPartition(string eventHubName, string partition);
+
+        [LoggerMessage(
+            Level = LogLevel.Information,
+            Message = "Stopping reading from EventHub partition {EventHubName}-{Partition}"
+        )]
+        private partial void LogInfoStoppingReadingFromEventHubPartition(string eventHubName, string partition);
+
+        [LoggerMessage(
+            Level = LogLevel.Warning,
+            EventId = (int)OrleansEventHubErrorCode.FailedPartitionRead,
+            Message = "Retrying initialization of EventHub partition {EventHubName}-{Partition}."
+        )]
+        private partial void LogWarningRetryingInitializationOfEventHubPartition(string eventHubName, string partition);
+
+        [LoggerMessage(
+            Level = LogLevel.Warning,
+            EventId = (int)OrleansEventHubErrorCode.FailedPartitionRead,
+            Message = "Failed to read from EventHub partition {EventHubName}-{Partition}"
+        )]
+        private partial void LogWarningFailedToReadFromEventHubPartition(string eventHubName, string partition, Exception exception);
     }
 }

@@ -1,15 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Orleans.Internal;
 using Orleans.Runtime.Scheduler;
 
 namespace Orleans.Runtime.MembershipService
 {
-    internal class MembershipSystemTarget : SystemTarget, IMembershipService
+    internal sealed class MembershipSystemTarget : SystemTarget, IMembershipService, ILifecycleParticipant<ISiloLifecycle>
     {
         private readonly MembershipTableManager membershipTableManager;
         private readonly ILogger<MembershipSystemTarget> log;
@@ -17,15 +15,15 @@ namespace Orleans.Runtime.MembershipService
 
         public MembershipSystemTarget(
             MembershipTableManager membershipTableManager,
-            ILocalSiloDetails localSiloDetails,
-            ILoggerFactory loggerFactory,
             ILogger<MembershipSystemTarget> log,
-            IInternalGrainFactory grainFactory)
-            : base(Constants.MembershipServiceType, localSiloDetails.SiloAddress, loggerFactory)
+            IInternalGrainFactory grainFactory,
+            SystemTargetShared shared)
+            : base(Constants.MembershipServiceType, shared)
         {
             this.membershipTableManager = membershipTableManager;
             this.log = log;
             this.grainFactory = grainFactory;
+            shared.ActivationDirectory.RecordNewTarget(this);
         }
 
         public Task Ping(int pingNumber) => Task.CompletedTask;
@@ -84,7 +82,15 @@ namespace Orleans.Runtime.MembershipService
             try
             {
                 var probeTask = this.ProbeInternal(target, probeNumber);
-                await probeTask.WithTimeout(probeTimeout, exceptionMessage: $"Requested probe timeout {probeTimeout} exceeded");
+                try
+                {
+                    await probeTask.WaitAsync(probeTimeout);
+                }
+                catch (TimeoutException exception)
+                {
+                    log.LogWarning(exception, "Requested probe timeout {ProbeTimeout} exceeded", probeTimeout);
+                    throw;
+                }
 
                 result = new IndirectProbeResponse
                 {
@@ -149,10 +155,10 @@ namespace Orleans.Runtime.MembershipService
             }
             catch (Exception exception)
             {
-                this.log.LogError(
+                this.log.LogWarning(
                     (int)ErrorCode.MembershipGossipSendFailure,
                     exception,
-                    "Exception while sending gossip notification to remote silo {Silo}",
+                    "Error sending gossip notification to remote silo '{Silo}'.",
                     silo);
             }
         }
@@ -168,7 +174,7 @@ namespace Orleans.Runtime.MembershipService
                 this.log.LogError(
                     (int)ErrorCode.MembershipGossipProcessingFailure,
                     exception,
-                    "Error refreshing membership table");
+                    "Error refreshing membership table.");
             }
         }
 
@@ -181,7 +187,7 @@ namespace Orleans.Runtime.MembershipService
                 var remoteOracle = this.grainFactory.GetSystemTarget<IMembershipService>(Constants.MembershipServiceType, remoteSilo);
                 task = remoteOracle.Ping(probeNumber);
 
-                // Update stats counter. Only count Pings that were successfuly sent, but not necessarily replied to.
+                // Update stats counter. Only count Pings that were successfully sent, but not necessarily replied to.
                 MessagingInstruments.OnPingSend(remoteSilo);
             }
             finally
@@ -190,6 +196,11 @@ namespace Orleans.Runtime.MembershipService
             }
 
             return task;
+        }
+
+        void ILifecycleParticipant<ISiloLifecycle>.Participate(ISiloLifecycle observer)
+        {
+            // No-op, just ensure this instance is created at start-up.
         }
     }
 }

@@ -1,9 +1,4 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
-using Orleans.Runtime;
 using UnitTests.GrainInterfaces;
 
 namespace UnitTests.Grains
@@ -11,7 +6,7 @@ namespace UnitTests.Grains
     internal class LivenessTestGrain : Grain, ILivenessTestGrain
     {
         private string label;
-        private ILogger logger;
+        private readonly ILogger logger;
         private Guid uniqueId;
 
         public LivenessTestGrain(ILoggerFactory loggerFactory)
@@ -52,12 +47,12 @@ namespace UnitTests.Grains
         public Task StartTimer()
         {
             logger.LogInformation("StartTimer.");
-            base.RegisterTimer(TimerTick, null, TimeSpan.Zero, TimeSpan.FromSeconds(10));
+            this.RegisterGrainTimer(TimerTick, TimeSpan.Zero, TimeSpan.FromSeconds(10));
             
             return Task.CompletedTask;
         }
 
-        private Task TimerTick(object data)
+        private Task TimerTick()
         {
             logger.LogInformation("TimerTick.");
             return Task.CompletedTask;

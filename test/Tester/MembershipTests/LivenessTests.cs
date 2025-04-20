@@ -1,14 +1,8 @@
-using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.Net;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Configuration;
-using Orleans.Hosting;
-using Orleans.Internal;
 using Orleans.Runtime;
 using Orleans.TestingHost;
 using TestExtensions;
@@ -18,7 +12,7 @@ using Xunit.Abstractions;
 
 namespace UnitTests.MembershipTests
 {
-    public class LivenessTestsBase : TestClusterPerTest
+    public abstract class LivenessTestsBase : TestClusterPerTest
     {
         private readonly ITestOutputHelper output;
         private const int numAdditionalSilos = 1;
@@ -194,7 +188,7 @@ namespace UnitTests.MembershipTests
         {
             public void Configure(IConfiguration configuration, IClientBuilder clientBuilder)
             {
-                clientBuilder.Configure<GatewayOptions>(options => options.PreferedGatewayIndex = 1);
+                clientBuilder.Configure<GatewayOptions>(options => options.PreferredGatewayIndex = 1);
             }
         }
 

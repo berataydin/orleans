@@ -1,5 +1,3 @@
-using System;
-using System.Threading.Tasks;
 using Orleans.Internal;
 using TestExtensions;
 using UnitTests.GrainInterfaces;
@@ -20,7 +18,7 @@ namespace DefaultCluster.Tests.General
             var observer = new SimpleGrainObserver();
             var task = grain.Notify(this.Client.CreateObjectReference<ISimpleGrainObserver>(observer));
             Assert.True(task.Status == TaskStatus.RanToCompletion, "Task should be synchronously completed.");
-            await observer.ReceivedValue.WithTimeout(TimeSpan.FromSeconds(10));
+            await observer.ReceivedValue.WaitAsync(TimeSpan.FromSeconds(10));
             var count = await grain.GetCount();
             Assert.Equal(1, count);
 
@@ -39,7 +37,7 @@ namespace DefaultCluster.Tests.General
             var observerReference = this.Client.CreateObjectReference<ISimpleGrainObserver>(observer);
             var completedSynchronously = await grain.NotifyOtherGrain(otherGrain, observerReference);
             Assert.True(completedSynchronously, "Task should be synchronously completed.");
-            await observer.ReceivedValue.WithTimeout(TimeSpan.FromSeconds(10));
+            await observer.ReceivedValue.WaitAsync(TimeSpan.FromSeconds(10));
             var count = await otherGrain.GetCount();
             Assert.Equal(1, count);
         }
@@ -52,7 +50,7 @@ namespace DefaultCluster.Tests.General
             var observer = new SimpleGrainObserver();
             var task = grain.NotifyValueTask(this.Client.CreateObjectReference<ISimpleGrainObserver>(observer));
             Assert.True(task.IsCompleted, "ValueTask should be synchronously completed.");
-            await observer.ReceivedValue.WithTimeout(TimeSpan.FromSeconds(10));
+            await observer.ReceivedValue.WaitAsync(TimeSpan.FromSeconds(10));
             var count = await grain.GetCount();
             Assert.Equal(1, count);
 
@@ -71,7 +69,7 @@ namespace DefaultCluster.Tests.General
             var observerReference = this.Client.CreateObjectReference<ISimpleGrainObserver>(observer);
             var completedSynchronously = await grain.NotifyOtherGrainValueTask(otherGrain, observerReference);
             Assert.True(completedSynchronously, "Task should be synchronously completed.");
-            await observer.ReceivedValue.WithTimeout(TimeSpan.FromSeconds(10));
+            await observer.ReceivedValue.WaitAsync(TimeSpan.FromSeconds(10));
             var count = await otherGrain.GetCount();
             Assert.Equal(1, count);
         }

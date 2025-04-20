@@ -1,11 +1,7 @@
-using System;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Orleans;
 using Orleans.Configuration;
-using Orleans.Hosting;
 using Orleans.Providers.Streams.AzureQueue;
 using Orleans.TestingHost;
 using Tester.StreamingTests.Filtering;
@@ -88,12 +84,17 @@ namespace Tester.AzureUtils.Streaming
 
         public async Task DisposeAsync()
         {
-            if (!string.IsNullOrWhiteSpace(TestDefaultConfiguration.DataConnectionString))
+            try
             {
+                TestUtils.CheckForAzureStorage();
                 await AzureQueueStreamProviderUtils.ClearAllUsedAzureQueues(
                   NullLoggerFactory.Instance,
                   AzureQueueUtilities.GenerateQueueNames(this.fixture.HostedCluster.Options.ClusterId, queueCount),
                   new AzureQueueOptions().ConfigureTestDefaults());
+            }
+            catch (SkipException)
+            {
+                // Ignore
             }
         }
     }

@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Orleans.Configuration;
-using Orleans.Internal;
 using Orleans.Providers.Streams.Common;
 using Orleans.Runtime;
 using Orleans.Streams;
@@ -29,7 +28,7 @@ namespace Orleans.Providers.Streams.Generator
     /// This factory acts as the adapter and the adapter factory.  It creates receivers that use configurable generator
     ///   to generate event streams, rather than reading them from storage.
     /// </summary>
-    public class GeneratorAdapterFactory : IQueueAdapterFactory, IQueueAdapter, IQueueAdapterCache, IControllable
+    public partial class GeneratorAdapterFactory : IQueueAdapterFactory, IQueueAdapter, IQueueAdapterCache, IControllable
     {
         /// <summary>
         /// Configuration property name for generator configuration type
@@ -73,7 +72,7 @@ namespace Orleans.Providers.Streams.Generator
         /// Return a IQueueAdapterReceiverMonitor
         /// </summary>
         protected Func<ReceiverMonitorDimensions, IQueueAdapterReceiverMonitor> ReceiverMonitorFactory;
-        
+
         public GeneratorAdapterFactory(
             string providerName,
             HashRingStreamQueueMapperOptions queueMapperOptions,
@@ -103,10 +102,10 @@ namespace Orleans.Providers.Streams.Generator
                 this.BlockPoolMonitorFactory = (dimensions) => new DefaultBlockPoolMonitor(dimensions);
             if (this.ReceiverMonitorFactory == null)
                 this.ReceiverMonitorFactory = (dimensions) => new DefaultQueueAdapterReceiverMonitor(dimensions);
-            generatorConfig = this.serviceProvider.GetServiceByName<IStreamGeneratorConfig>(this.Name);
+            generatorConfig = this.serviceProvider.GetKeyedService<IStreamGeneratorConfig>(this.Name);
             if(generatorConfig == null)
             {
-                this.logger.LogInformation("No generator configuration found for stream provider {StreamProvider}.  Inactive until provided with configuration by command.", this.Name);
+                LogInfoNoGeneratorConfigurationFound(this.Name);
             }
         }
 
@@ -171,12 +170,12 @@ namespace Orleans.Providers.Streams.Generator
         {
             if (arg == null)
             {
-                throw new ArgumentNullException("arg");
+                throw new ArgumentNullException(nameof(arg));
             }
             generatorConfig = arg as IStreamGeneratorConfig;
             if (generatorConfig == null)
             {
-                throw new ArgumentOutOfRangeException("arg", "Arg must by of type IStreamGeneratorConfig");
+                throw new ArgumentOutOfRangeException(nameof(arg), "Arg must by of type IStreamGeneratorConfig");
             }
 
             // update generator on receivers
@@ -190,7 +189,7 @@ namespace Orleans.Providers.Streams.Generator
 
         private class Receiver : IQueueAdapterReceiver
         {
-            const int MaxDelayMs = 20;
+            private const int MaxDelayMs = 20;
             private readonly IQueueAdapterReceiverMonitor receiverMonitor;
             public IStreamGenerator QueueGenerator { private get; set; }
 
@@ -283,5 +282,12 @@ namespace Orleans.Providers.Streams.Generator
             factory.Init();
             return factory;
         }
+
+        // "No generator configuration found for stream provider {StreamProvider}.  Inactive until provided with configuration by command."
+        [LoggerMessage(
+            Level = LogLevel.Information,
+            Message = "No generator configuration found for stream provider {StreamProvider}.  Inactive until provided with configuration by command."
+        )]
+        private partial void LogInfoNoGeneratorConfigurationFound(string streamProvider);
     }
 }

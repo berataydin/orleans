@@ -1,17 +1,10 @@
 using Orleans.Providers.Streams.Common;
-using Orleans.Runtime;
 using Orleans.Streaming.EventHubs;
 using Orleans.Streams;
-using Orleans.TestingHost.Utils;
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Orleans.Configuration;
-using TestExtensions;
 using Xunit;
 using Orleans.Streaming.EventHubs.Testing;
 using Azure.Messaging.EventHubs;
@@ -24,15 +17,15 @@ namespace ServiceBus.Tests.EvictionStrategyTests
     [TestCategory("EventHub"), TestCategory("Streaming")]
     public class EHPurgeLogicTests
     {
-        private CachePressureInjectionMonitor cachePressureInjectionMonitor;
-        private PurgeDecisionInjectionPredicate purgePredicate;
-        private Serializer serializer;
+        private readonly CachePressureInjectionMonitor cachePressureInjectionMonitor;
+        private readonly PurgeDecisionInjectionPredicate purgePredicate;
+        private readonly Serializer serializer;
         private EventHubAdapterReceiver receiver1;
         private EventHubAdapterReceiver receiver2;
-        private ObjectPool<FixedSizeBuffer> bufferPool;
-        private TimeSpan timeOut = TimeSpan.FromSeconds(30);
-        private EventHubPartitionSettings ehSettings;
-        private NoOpHostEnvironmentStatistics _hostEnvironmentStatistics;
+        private readonly ObjectPool<FixedSizeBuffer> bufferPool;
+        private readonly TimeSpan timeOut = TimeSpan.FromSeconds(30);
+        private readonly EventHubPartitionSettings ehSettings;
+        private NoOpEnvironmentStatisticsProvider _hostEnvironmentStatistics;
         private ConcurrentBag<EventHubQueueCacheForTesting> cacheList;
         private List<EHEvictionStrategyForTesting> evictionStrategyList;
 
@@ -195,7 +188,7 @@ namespace ServiceBus.Tests.EvictionStrategyTests
 
         private void InitForTesting()
         {
-            _hostEnvironmentStatistics = new NoOpHostEnvironmentStatistics();
+            _hostEnvironmentStatistics = new NoOpEnvironmentStatisticsProvider();
             this.cacheList = new ConcurrentBag<EventHubQueueCacheForTesting>();
             this.evictionStrategyList = new List<EHEvictionStrategyForTesting>();
             var monitorDimensions = new EventHubReceiverMonitorDimensions
@@ -222,7 +215,7 @@ namespace ServiceBus.Tests.EvictionStrategyTests
             return itemCount;
         }
 
-        private async Task AddDataIntoCache(EventHubQueueCacheForTesting cache, int count)
+        private static async Task AddDataIntoCache(EventHubQueueCacheForTesting cache, int count)
         {
             await Task.Delay(10);
             List<EventData> messages = Enumerable.Range(0, count)
@@ -231,7 +224,7 @@ namespace ServiceBus.Tests.EvictionStrategyTests
             cache.Add(messages, DateTime.UtcNow);
         }
 
-        private EventData MakeEventData(long sequenceNumber)
+        private static EventData MakeEventData(long sequenceNumber)
         {
             byte[] ignore = { 12, 23 };
             var now = DateTime.UtcNow;
@@ -270,13 +263,9 @@ namespace ServiceBus.Tests.EvictionStrategyTests
             return cache;
         }
 
-        private class NoOpHostEnvironmentStatistics : IHostEnvironmentStatistics
+        private class NoOpEnvironmentStatisticsProvider : IEnvironmentStatisticsProvider
         {
-            public long? TotalPhysicalMemory => null;
-
-            public float? CpuUsage => null;
-
-            public long? AvailableMemory => null;
+            public EnvironmentStatistics GetEnvironmentStatistics() => new();
         }
     }
 }

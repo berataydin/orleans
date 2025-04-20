@@ -1,15 +1,13 @@
-using System;
-using System.Threading.Tasks;
-using System.Collections.Generic;
 using Microsoft.Extensions.Options;
 using Xunit;
-using Orleans.Hosting;
 using Orleans.TestingHost;
 using UnitTests.GrainInterfaces;
 using TestExtensions;
 using Tester;
 
 using Orleans.Configuration;
+using Azure.Data.Tables;
+using Azure.Identity;
 
 namespace Tests.GeoClusterTests
 {
@@ -17,7 +15,7 @@ namespace Tests.GeoClusterTests
     public class BasicLogTestGrainTests : IClassFixture<BasicLogTestGrainTests.Fixture>
     {
         private readonly Fixture fixture;
-        private Random random;
+        private readonly Random random;
 
         public class Fixture : BaseAzureTestClusterFixture
         {
@@ -39,13 +37,20 @@ namespace Tests.GeoClusterTests
                         .AddCustomStorageBasedLogConsistencyProvider("CustomStoragePrimaryCluster", "A")
                         .AddAzureTableGrainStorageAsDefault(builder => builder.Configure<IOptions<ClusterOptions>>((options, silo) =>
                         {
-                            options.ConfigureTableServiceClient(TestDefaultConfiguration.DataConnectionString);
+                            options.TableServiceClient = GetTableServiceClient();
                         }))
                         .AddAzureTableGrainStorage("AzureStore", builder => builder.Configure<IOptions<ClusterOptions>>((options, silo) =>
                         {
-                            options.ConfigureTableServiceClient(TestDefaultConfiguration.DataConnectionString);
+                            options.TableServiceClient = GetTableServiceClient();
                         }))
                         .AddMemoryGrainStorage("MemoryStore"); 
+                }
+
+                private static TableServiceClient GetTableServiceClient()
+                {
+                    return TestDefaultConfiguration.UseAadAuthentication
+                        ? new(TestDefaultConfiguration.TableEndpoint, TestDefaultConfiguration.TokenCredential)
+                        : new(TestDefaultConfiguration.DataConnectionString);
                 }
             }
         }
@@ -98,7 +103,7 @@ namespace Tests.GeoClusterTests
         private async Task ThreeCheckers(string grainClass, int phases)
         {
             // Global 
-            Func<Task> checker1 = async () =>
+            async Task checker1()
             {
                 int x = GetRandom();
                 var grain = this.fixture.GrainFactory.GetGrain<ILogTestGrain>(x, grainClass);
@@ -106,10 +111,10 @@ namespace Tests.GeoClusterTests
                 int a = await grain.GetAGlobal();
                 Assert.Equal(x, a); // value of A survive grain call
                 Assert.Equal(1, await grain.GetConfirmedVersion());
-            };
+            }
 
             // Local
-            Func<Task> checker2 = async () =>
+            async Task checker2()
             {
                 int x = GetRandom();
                 var grain = this.fixture.GrainFactory.GetGrain<ILogTestGrain>(x, grainClass);
@@ -117,10 +122,10 @@ namespace Tests.GeoClusterTests
                 await grain.SetALocal(x);
                 int a = await grain.GetALocal();
                 Assert.Equal(x, a); // value of A survive grain call
-            };
+            }
 
             // Local then Global
-            Func<Task> checker3 = async () =>
+            async Task checker3()
             {
                 // Local then Global
                 int x = GetRandom();
@@ -129,7 +134,7 @@ namespace Tests.GeoClusterTests
                 int a = await grain.GetAGlobal();
                 Assert.Equal(x, a);
                 Assert.Equal(1, await grain.GetConfirmedVersion());
-            };
+            }
 
             // test them in sequence
             await checker1();

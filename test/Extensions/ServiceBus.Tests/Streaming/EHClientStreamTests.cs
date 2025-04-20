@@ -1,12 +1,7 @@
-using System;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Configuration;
-using Orleans.Hosting;
-using Orleans.Runtime;
 using Orleans.Streaming.EventHubs;
 using Orleans.Streams;
 using Orleans.TestingHost;
@@ -63,7 +58,7 @@ namespace ServiceBus.Tests.StreamingTests
                             EventHubCheckpointerFactory.CreateFactory,
                             ob => ob.Configure(options =>
                             {
-                                options.ConfigureTableServiceClient(TestDefaultConfiguration.DataConnectionString);
+                                options.ConfigureTestDefaults();
                                 options.PersistInterval = TimeSpan.FromSeconds(10);
                             }));
                     })

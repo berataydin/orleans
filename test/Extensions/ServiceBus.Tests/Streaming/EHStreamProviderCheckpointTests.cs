@@ -1,10 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Providers.Streams.Common;
 using Orleans.Providers.Streams.Generator;
 using Orleans.Runtime;
@@ -16,9 +11,9 @@ using TestGrainInterfaces;
 using TestGrains;
 using UnitTests.Grains;
 using Xunit;
-using Orleans.Hosting;
 using Orleans.Configuration;
 using Tester;
+using Tester.AzureUtils;
 
 namespace ServiceBus.Tests.StreamingTests
 {
@@ -46,7 +41,7 @@ namespace ServiceBus.Tests.StreamingTests
                         ImplicitSubscription_RecoverableStream_CollectorGrain.StorageProviderName,
                         (AzureBlobStorageOptions options) =>
                         {
-                            options.ConfigureBlobServiceClient(TestDefaultConfiguration.DataConnectionString);
+                            options.ConfigureTestDefaults();
                         })
                     .AddEventHubStreams(StreamProviderName, b=>
                     {
@@ -61,7 +56,7 @@ namespace ServiceBus.Tests.StreamingTests
 
                         b.UseAzureTableCheckpointer(ob => ob.Configure(options =>
                         {
-                            options.ConfigureTableServiceClient(TestDefaultConfiguration.DataConnectionString);
+                            options.ConfigureTestDefaults();
                             options.PersistInterval = TimeSpan.FromSeconds(1);
                         }));
                     });
@@ -165,8 +160,8 @@ namespace ServiceBus.Tests.StreamingTests
         {
             var mgmt = this.GrainFactory.GetGrain<IManagementGrain>(0);
 
-            await mgmt.SendControlCommandToProvider(StreamProviderTypeName, StreamProviderName, (int)PersistentStreamProviderCommand.StopAgents);
-            await mgmt.SendControlCommandToProvider(StreamProviderTypeName, StreamProviderName, (int)PersistentStreamProviderCommand.StartAgents);
+            await mgmt.SendControlCommandToProvider<PersistentStreamProvider>(StreamProviderName, (int)PersistentStreamProviderCommand.StopAgents, null);
+            await mgmt.SendControlCommandToProvider<PersistentStreamProvider>(StreamProviderName, (int)PersistentStreamProviderCommand.StartAgents, null);
         }
 
         private async Task GenerateEvents(string streamNamespace, List<Guid> streamGuids, int eventsInStream, int payloadSize)

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq.Expressions;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,9 +8,7 @@ using Microsoft.Extensions.Options;
 using Orleans.Configuration;
 using Orleans.Internal;
 using Orleans.Runtime;
-using Orleans.Runtime.Configuration;
 using Orleans.Runtime.Messaging;
-using Orleans.Statistics;
 
 namespace Orleans.Messaging
 {
@@ -40,14 +37,14 @@ namespace Orleans.Messaging
     //
     // The list of known gateways is managed by the GatewayManager class. See comments there for details.
     // </summary>
-    internal class ClientMessageCenter : IMessageCenter, IDisposable
+    internal partial class ClientMessageCenter : IMessageCenter, IDisposable
     {
         private readonly object grainBucketUpdateLock = new object();
 
         internal static readonly TimeSpan MINIMUM_INTERCONNECT_DELAY = TimeSpan.FromMilliseconds(100);   // wait one tenth of a second between connect attempts
         internal const int CONNECT_RETRY_COUNT = 2;                                                      // Retry twice before giving up on a gateway server
 
-        internal ClientGrainId ClientId { get; private set; }
+        internal ClientGrainId ClientId => _localClientDetails.ClientId;
         public IRuntimeClient RuntimeClient { get; }
         internal bool Running { get; private set; }
 
@@ -61,17 +58,16 @@ namespace Orleans.Messaging
         // false, then a new gateway is selected using the gateway manager, and a new connection established if necessary.
         private readonly WeakReference<ClientOutboundConnection>[] grainBuckets;
         private readonly ILogger logger;
-        public SiloAddress MyAddress { get; private set; }
+        public SiloAddress MyAddress => _localClientDetails.ClientAddress;
         private int numberOfConnectedGateways = 0;
         private readonly MessageFactory messageFactory;
         private readonly IClusterConnectionStatusListener connectionStatusListener;
         private readonly ConnectionManager connectionManager;
+        private readonly LocalClientDetails _localClientDetails;
 
         public ClientMessageCenter(
             IOptions<ClientMessagingOptions> clientMessagingOptions,
-            IPAddress localAddress,
-            int gen,
-            ClientGrainId clientId,
+            LocalClientDetails localClientDetails,
             IRuntimeClient runtimeClient,
             MessageFactory messageFactory,
             IClusterConnectionStatusListener connectionStatusListener,
@@ -80,8 +76,7 @@ namespace Orleans.Messaging
             GatewayManager gatewayManager)
         {
             this.connectionManager = connectionManager;
-            MyAddress = SiloAddress.New(localAddress, 0, gen);
-            ClientId = clientId;
+            _localClientDetails = localClientDetails;
             this.RuntimeClient = runtimeClient;
             this.messageFactory = messageFactory;
             this.connectionStatusListener = connectionStatusListener;
@@ -90,7 +85,6 @@ namespace Orleans.Messaging
             numMessages = 0;
             this.grainBuckets = new WeakReference<ClientOutboundConnection>[clientMessagingOptions.Value.ClientSenderBuckets];
             logger = loggerFactory.CreateLogger<ClientMessageCenter>();
-            if (logger.IsEnabled(LogLevel.Debug)) logger.LogDebug("Proxy grain client constructed");
             ClientInstruments.RegisterConnectedGatewayCountObserve(() => connectionManager.ConnectionCount);
         }
 
@@ -99,21 +93,19 @@ namespace Orleans.Messaging
             await EstablishInitialConnection(cancellationToken);
 
             Running = true;
-            if (logger.IsEnabled(LogLevel.Debug)) logger.LogDebug("Proxy grain client started");
+            LogClientMessageCenterStarted();
         }
 
         private async Task EstablishInitialConnection(CancellationToken cancellationToken)
         {
-            var cancellationTask = cancellationToken.WhenCancelled();
             var liveGateways = gatewayManager.GetLiveGateways();
 
             if (liveGateways.Count == 0)
             {
-                throw new ConnectionFailedException("There are no available gateways");
+                throw new ConnectionFailedException("There are no available gateways.");
             }
 
-            var pendingTasks = new List<Task>(liveGateways.Count + 1);
-            pendingTasks.Add(cancellationTask);
+            var pendingTasks = new List<Task>(liveGateways.Count);
             foreach (var gateway in liveGateways)
             {
                 pendingTasks.Add(connectionManager.GetConnection(gateway).AsTask());
@@ -121,13 +113,10 @@ namespace Orleans.Messaging
 
             try
             {
-                // There will always be one task to represent cancellation.
-                while (pendingTasks.Count > 1)
+                while (pendingTasks.Count > 0)
                 {
-                    var completedTask = await Task.WhenAny(pendingTasks);
+                    var completedTask = await Task.WhenAny(pendingTasks).WaitAsync(cancellationToken);
                     pendingTasks.Remove(completedTask);
-
-                    cancellationToken.ThrowIfCancellationRequested();
 
                     // If at least one gateway connection has been established, break out of the loop and continue startup.
                     if (completedTask.IsCompletedSuccessfully)
@@ -136,9 +125,13 @@ namespace Orleans.Messaging
                     }
 
                     // If there are no more gateways, observe the most recent exception and bail out.
-                    if (pendingTasks.Count == 1)
+                    if (pendingTasks.Count == 0)
                     {
                         await completedTask;
+                    }
+                    else
+                    {
+                        completedTask.Ignore();
                     }
                 }
             }
@@ -150,10 +143,10 @@ namespace Orleans.Messaging
             }
         }
 
-        public void Stop()
+        public async Task StopAsync(CancellationToken cancellationToken)
         {
             Running = false;
-            gatewayManager.Stop();
+            await gatewayManager.StopAsync(cancellationToken);
         }
 
         public void DispatchLocalMessage(Message message)
@@ -175,10 +168,7 @@ namespace Orleans.Messaging
         {
             if (!Running)
             {
-                this.logger.LogError(
-                    (int)ErrorCode.ProxyClient_MsgCtrNotRunning,
-                    "Ignoring {Message} because the Client message center is not running",
-                    msg);
+                LogNotRunning(msg);
                 return;
             }
 
@@ -189,15 +179,7 @@ namespace Orleans.Messaging
                 if (connection is null) return;
 
                 connection.Send(msg);
-
-                if (this.logger.IsEnabled(LogLevel.Trace))
-                {
-                    this.logger.LogTrace(
-                        (int)ErrorCode.ProxyClient_QueueRequest,
-                        "Sending message {Message} via gateway {Gateway}",
-                        msg,
-                        connection.RemoteEndPoint);
-                }
+                LogSendingMessage(msg, connection.RemoteEndPoint);
             }
             else
             {
@@ -214,14 +196,7 @@ namespace Orleans.Messaging
 
                         connection.Send(message);
 
-                        if (this.logger.IsEnabled(LogLevel.Trace))
-                        {
-                            this.logger.LogTrace(
-                                (int)ErrorCode.ProxyClient_QueueRequest,
-                                "Sending message {Message} via gateway {Gateway}",
-                                message,
-                                connection.RemoteEndPoint);
-                        }
+                        LogSendingMessage(message, connection.RemoteEndPoint);
                     }
                     catch (Exception exception)
                     {
@@ -272,11 +247,7 @@ namespace Orleans.Messaging
                 if (numGateways == 0)
                 {
                     RejectMessage(msg, "No gateways available");
-                    logger.LogWarning(
-                        (int)ErrorCode.ProxyClient_CannotSend,
-                        "Unable to send message {Message}; Gateway manager state is {GatewayManager}",
-                        msg,
-                        gatewayManager);
+                    LogSendFailed(msg, gatewayManager);
                     return new ValueTask<Connection>(default(Connection));
                 }
 
@@ -310,11 +281,7 @@ namespace Orleans.Messaging
             if (addr == null)
             {
                 RejectMessage(msg, "No gateways available");
-                logger.LogWarning(
-                    (int)ErrorCode.ProxyClient_CannotSend_NoGateway,
-                    "Unable to send message {Message}; Gateway manager state is {GatewayManager}",
-                    msg,
-                    gatewayManager);
+                LogNoGatewayAvailableForMessage(msg, gatewayManager);
                 return new ValueTask<Connection>(default(Connection));
             }
 
@@ -397,11 +364,11 @@ namespace Orleans.Messaging
 
             if (msg.Direction != Message.Directions.Request)
             {
-                if (logger.IsEnabled(LogLevel.Debug)) logger.LogDebug((int)ErrorCode.ProxyClient_DroppingMsg, "Dropping message: {Message}. Reason = {Reason}", msg, reason);
+                if (logger.IsEnabled(LogLevel.Debug)) LogDroppingMessage(msg, reason);
             }
             else
             {
-                if (logger.IsEnabled(LogLevel.Debug)) logger.LogDebug((int)ErrorCode.ProxyClient_RejectingMsg, "Rejecting message: {Message}. Reason = {Reason}", msg, reason);
+                if (logger.IsEnabled(LogLevel.Debug)) LogRejectingMessage(msg, reason);
                 MessagingInstruments.OnRejectedMessage(msg);
                 var error = this.messageFactory.CreateRejectionResponse(msg, Message.RejectionTypes.Unrecoverable, reason, exc);
                 DispatchLocalMessage(error);
@@ -429,5 +396,53 @@ namespace Orleans.Messaging
         {
             gatewayManager.Dispose();
         }
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.ProxyClient_MsgCtrNotRunning,
+            Level = LogLevel.Error,
+            Message = "Ignoring {Message} because the client message center is not running."
+        )]
+        private partial void LogNotRunning(Message message);
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.ProxyClient_QueueRequest,
+            Level = LogLevel.Trace,
+            Message = "Sending message {Message} via gateway '{Gateway}'."
+        )]
+        private partial void LogSendingMessage(Message message, EndPoint gateway);
+
+        [LoggerMessage(
+            Level = LogLevel.Trace,
+            Message = "Client message center started."
+        )]
+        private partial void LogClientMessageCenterStarted();
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.ProxyClient_CannotSend,
+            Level = LogLevel.Warning,
+            Message = "Unable to send message {Message}; Gateway manager state is {GatewayManager}."
+        )]
+        private partial void LogSendFailed(Message message, GatewayManager gatewayManager);
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.ProxyClient_CannotSend_NoGateway,
+            Level = LogLevel.Warning,
+            Message = "No gateway available to receive message {Message}; Gateway manager state is {GatewayManager}."
+        )]
+        private partial void LogNoGatewayAvailableForMessage(Message message, GatewayManager gatewayManager);
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.ProxyClient_DroppingMsg,
+            Level = LogLevel.Debug,
+            Message = "Dropping message: {Message}. Reason = {Reason}"
+        )]
+        private partial void LogDroppingMessage(Message message, string reason);
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.ProxyClient_RejectingMsg,
+            Level = LogLevel.Debug,
+            Message = "Rejecting message: {Message}. Reason = {Reason}"
+        )]
+        private partial void LogRejectingMessage(Message message, string reason);
     }
 }

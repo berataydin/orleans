@@ -12,7 +12,7 @@ namespace Orleans.Transactions.TestKit
     {
         protected Func<Task<ITransactionalStateStorage<TState>>> stateStorageFactory;
         protected Func<int, TState> stateFactory;
-        protected Func<EquivalencyAssertionOptions<TState>, EquivalencyAssertionOptions<TState>> assertConfig;
+        protected Func<EquivalencyOptions<TState>, EquivalencyOptions<TState>> assertConfig;
 
         /// <summary>
         /// Constructor
@@ -22,12 +22,12 @@ namespace Orleans.Transactions.TestKit
         /// <param name="stateFactory">factory to create TState for test</param>
         /// <param name="grainFactory">grain Factory needed for test runner</param>
         /// <param name="testOutput">test output to helpful messages</param>
-        /// <param name="assertConfig">A reference to the FluentAssertions.Equivalency.EquivalencyAssertionOptions`1
+        /// <param name="assertConfig">A reference to the FluentAssertions.Equivalency.EquivalencyOptions`1
         ///     configuration object that can be used to influence the way the object graphs
         ///     are compared</param>
         protected TransactionalStateStorageTestRunner(Func<Task<ITransactionalStateStorage<TState>>> stateStorageFactory, Func<int, TState> stateFactory, 
             IGrainFactory grainFactory, Action<string> testOutput,
-            Func<EquivalencyAssertionOptions<TState>, EquivalencyAssertionOptions<TState>> assertConfig = null)
+            Func<EquivalencyOptions<TState>, EquivalencyOptions<TState>> assertConfig = null)
             :base(grainFactory, testOutput)
         {
             this.stateStorageFactory = stateStorageFactory;
@@ -49,7 +49,7 @@ namespace Orleans.Transactions.TestKit
             response.PendingStates.Should().BeEmpty();
         }
 
-        private static List<PendingTransactionState<TState>> emptyPendingStates = new List<PendingTransactionState<TState>>();
+        private static readonly List<PendingTransactionState<TState>> emptyPendingStates = new List<PendingTransactionState<TState>>();
   
         public virtual async Task StoreWithoutChanges()
         {
@@ -65,7 +65,7 @@ namespace Orleans.Transactions.TestKit
             loadresponse = await stateStorage.Load();
             loadresponse.Should().NotBeNull();
             loadresponse.Metadata.Should().NotBeNull();
-            loadresponse.Metadata.TimeStamp.Should().Be(default(DateTime));
+            loadresponse.Metadata.TimeStamp.Should().Be(default);
             loadresponse.Metadata.CommitRecords.Should().BeEmpty();
             loadresponse.ETag.Should().Be(etag1);
             loadresponse.CommittedSequenceId.Should().Be(0);
@@ -106,7 +106,7 @@ namespace Orleans.Transactions.TestKit
             // load again
             loadresponse = await stateStorage.Load();
             loadresponse.Should().NotBeNull();
-            loadresponse.Metadata.TimeStamp.Should().Be(default(DateTime));
+            loadresponse.Metadata.TimeStamp.Should().Be(default);
             loadresponse.Metadata.CommitRecords.Should().BeEmpty();
             loadresponse.ETag.Should().BeNull();
             loadresponse.CommittedSequenceId.Should().Be(0);
@@ -147,21 +147,21 @@ namespace Orleans.Transactions.TestKit
                 actual.Should().BeEquivalentTo(expected, assertConfig);
         }
 
-        private PendingTransactionState<TState> MakePendingState(long seqno, TState val, bool tm)
+        private static PendingTransactionState<TState> MakePendingState(long seqno, TState val, bool tm)
         {
             var result = new PendingTransactionState<TState>()
             {
                 SequenceId = seqno,
                 TimeStamp = DateTime.UtcNow,
                 TransactionId = Guid.NewGuid().ToString(),
-                TransactionManager = tm ? default(ParticipantId) : MakeParticipantId(),
+                TransactionManager = tm ? default : MakeParticipantId(),
                 State = new TState()
             };
             result.State = val;
             return result;
         }
 
-        private ParticipantId MakeParticipantId()
+        private static ParticipantId MakeParticipantId()
         {
             return new ParticipantId(
                                     "tm",
@@ -170,7 +170,7 @@ namespace Orleans.Transactions.TestKit
                                     ParticipantId.Role.Resource | ParticipantId.Role.Manager);
         }
 
-        private Dictionary<Guid, CommitRecord> MakeCommitRecords(int count, int size)
+        private static Dictionary<Guid, CommitRecord> MakeCommitRecords(int count, int size)
         {
             var result = new Dictionary<Guid, CommitRecord>();
             for (int j = 0; j < size; j++)
@@ -246,7 +246,7 @@ namespace Orleans.Transactions.TestKit
             loadresponse.CommittedSequenceId.Should().Be(1);
             loadresponse.PendingStates.Count.Should().Be(0);
             AssertTState(loadresponse.CommittedState, expectedState);
-            loadresponse.Metadata.TimeStamp.Should().Be(default(DateTime));
+            loadresponse.Metadata.TimeStamp.Should().Be(default);
             loadresponse.Metadata.CommitRecords.Count.Should().Be(0);
         }
 
@@ -272,7 +272,7 @@ namespace Orleans.Transactions.TestKit
             loadresponse.CommittedSequenceId.Should().Be(0);
             loadresponse.PendingStates.Count.Should().Be(0);
             AssertTState(loadresponse.CommittedState,initialstate);
-            loadresponse.Metadata.TimeStamp.Should().Be(default(DateTime));
+            loadresponse.Metadata.TimeStamp.Should().Be(default);
             loadresponse.Metadata.CommitRecords.Count.Should().Be(0);
         }
 
@@ -349,7 +349,7 @@ namespace Orleans.Transactions.TestKit
             loadresponse.CommittedSequenceId.Should().Be(1);
             loadresponse.PendingStates.Count.Should().Be(0);
             AssertTState(loadresponse.CommittedState,expectedState);
-            loadresponse.Metadata.TimeStamp.Should().Be(default(DateTime));
+            loadresponse.Metadata.TimeStamp.Should().Be(default);
             loadresponse.Metadata.CommitRecords.Count.Should().Be(0);
         }
 
@@ -431,7 +431,7 @@ namespace Orleans.Transactions.TestKit
             loadresponse.CommittedSequenceId.Should().Be(count);
             loadresponse.PendingStates.Count.Should().Be(0);
             AssertTState(loadresponse.CommittedState,expectedStates[count - 1]);
-            loadresponse.Metadata.TimeStamp.Should().Be(default(DateTime));
+            loadresponse.Metadata.TimeStamp.Should().Be(default);
             loadresponse.Metadata.CommitRecords.Count.Should().Be(0);
         }
 
@@ -467,7 +467,7 @@ namespace Orleans.Transactions.TestKit
             loadresponse.CommittedSequenceId.Should().Be(0);
             loadresponse.PendingStates.Count.Should().Be(0);
             AssertTState(loadresponse.CommittedState,initialstate);
-            loadresponse.Metadata.TimeStamp.Should().Be(default(DateTime));
+            loadresponse.Metadata.TimeStamp.Should().Be(default);
             loadresponse.Metadata.CommitRecords.Count.Should().Be(0);
         }
 
@@ -563,7 +563,7 @@ namespace Orleans.Transactions.TestKit
             loadresponse.Metadata.Should().NotBeNull();
             loadresponse.CommittedSequenceId.Should().Be(6);
             AssertTState(loadresponse.CommittedState, expectedState6);
-            loadresponse.Metadata.TimeStamp.Should().Be(default(DateTime));
+            loadresponse.Metadata.TimeStamp.Should().Be(default);
             loadresponse.Metadata.CommitRecords.Count.Should().Be(0);
             loadresponse.PendingStates.Count.Should().Be(2);
             loadresponse.PendingStates[0].SequenceId.Should().Be(7);
@@ -614,7 +614,7 @@ namespace Orleans.Transactions.TestKit
             loadresponse.Metadata.Should().NotBeNull();
             loadresponse.CommittedSequenceId.Should().Be(3);
             AssertTState(loadresponse.CommittedState, expectedState3b);
-            loadresponse.Metadata.TimeStamp.Should().Be(default(DateTime));
+            loadresponse.Metadata.TimeStamp.Should().Be(default);
             loadresponse.Metadata.CommitRecords.Count.Should().Be(0);
             loadresponse.PendingStates.Count.Should().Be(1);
             loadresponse.PendingStates[0].SequenceId.Should().Be(4);

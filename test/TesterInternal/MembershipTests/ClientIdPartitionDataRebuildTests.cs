@@ -1,11 +1,6 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Orleans;
 using Orleans.Configuration;
-using Orleans.Hosting;
 using Orleans.Runtime;
 using Orleans.TestingHost;
 using UnitTests.GrainInterfaces;
@@ -158,7 +153,7 @@ namespace UnitTests.MembershipTests
         {
             public void Configure(IConfiguration configuration, IClientBuilder clientBuilder)
             {
-                clientBuilder.Configure<GatewayOptions>(options => options.PreferedGatewayIndex = 0);
+                clientBuilder.Configure<GatewayOptions>(options => options.PreferredGatewayIndex = 0);
             }
         }
 

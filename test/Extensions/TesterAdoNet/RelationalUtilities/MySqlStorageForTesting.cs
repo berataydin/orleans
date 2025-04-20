@@ -1,7 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
+using MySql.Data.MySqlClient;
 using Orleans.Tests.SqlUtils;
 using TestExtensions;
 

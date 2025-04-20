@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using Azure.Data.Tables;
 using Azure.Identity;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -38,11 +34,11 @@ namespace Tester.AzureUtils.Streaming
             var options = new AzureStorageOperationOptions { TableName = TableName };
             if (TestDefaultConfiguration.UseAadAuthentication)
             {
-                options.ConfigureTableServiceClient(TestDefaultConfiguration.TableEndpoint, new DefaultAzureCredential());
+                options.TableServiceClient = new(TestDefaultConfiguration.TableEndpoint, TestDefaultConfiguration.TokenCredential);
             }
             else
             {
-                options.ConfigureTableServiceClient(TestDefaultConfiguration.DataConnectionString);
+                options.TableServiceClient = new(TestDefaultConfiguration.DataConnectionString);
             }
             return new AzureTableDataManager<TableEntity>(options, NullLogger.Instance);
         }

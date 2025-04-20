@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Net;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Orleans.Concurrency;
 using Orleans.Runtime;
@@ -109,7 +110,7 @@ namespace Orleans
     }
 
     [Serializable, GenerateSerializer, Immutable]
-    public sealed class TableVersion : ISpanFormattable
+    public sealed class TableVersion : ISpanFormattable, IEquatable<TableVersion>
     {
         /// <summary>
         /// The version part of this TableVersion. Monotonically increasing number.
@@ -129,16 +130,19 @@ namespace Orleans
             VersionEtag = eTag;
         }
 
-        public TableVersion Next()
-        {
-            return new TableVersion(Version + 1, VersionEtag);
-        }
+        public TableVersion Next() => new (Version + 1, VersionEtag);
 
         public override string ToString() => $"<{Version}, {VersionEtag}>";
         string IFormattable.ToString(string format, IFormatProvider formatProvider) => ToString();
 
         bool ISpanFormattable.TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider provider)
             => destination.TryWrite($"<{Version}, {VersionEtag}>", out charsWritten);
+
+        public override bool Equals(object obj) => Equals(obj as TableVersion);
+        public override int GetHashCode() => HashCode.Combine(Version, VersionEtag);
+        public bool Equals(TableVersion other) => other is not null && Version == other.Version && VersionEtag == other.VersionEtag;
+        public static bool operator ==(TableVersion left, TableVersion right) => EqualityComparer<TableVersion>.Default.Equals(left, right);
+        public static bool operator !=(TableVersion left, TableVersion right) => !(left == right);
     }
 
     [Serializable]
@@ -303,6 +307,16 @@ namespace Orleans
         [Id(10)]
         public DateTime IAmAliveTime { get; set; }
 
+        internal DateTime EffectiveIAmAliveTime
+        {
+            get
+            {
+                var startTimeUtc = DateTime.SpecifyKind(StartTime, DateTimeKind.Utc);
+                var iAmAliveTimeUtc = DateTime.SpecifyKind(IAmAliveTime, DateTimeKind.Utc);
+                return startTimeUtc > iAmAliveTimeUtc ? startTimeUtc : iAmAliveTimeUtc;
+            }
+        }
+
         public void AddOrUpdateSuspector(SiloAddress localSilo, DateTime voteTime, int maxVotes)
         {
             var allVotes = SuspectTimes ??= new List<Tuple<SiloAddress, DateTime>>();
@@ -344,8 +358,21 @@ namespace Orleans
 
         internal MembershipEntry Copy()
         {
-            var copy = (MembershipEntry)MemberwiseClone();
-            copy.SuspectTimes = SuspectTimes is null ? null : new(SuspectTimes);
+            var copy = new MembershipEntry
+            {
+                SiloAddress = SiloAddress,
+                Status = Status,
+                SuspectTimes = SuspectTimes is null ? null : new(SuspectTimes),
+                ProxyPort = ProxyPort,
+                HostName = HostName,
+                SiloName = SiloName,
+                RoleName = RoleName,
+                UpdateZone = UpdateZone,
+                FaultZone = FaultZone,
+                StartTime = StartTime,
+                IAmAliveTime = IAmAliveTime
+            };
+
             return copy;
         }
 
@@ -353,6 +380,13 @@ namespace Orleans
         {
             var updated = this.Copy();
             updated.Status = status;
+            return updated;
+        }
+
+        internal MembershipEntry WithIAmAliveTime(DateTime iAmAliveTime)
+        {
+            var updated = this.Copy();
+            updated.IAmAliveTime = iAmAliveTime;
             return updated;
         }
 

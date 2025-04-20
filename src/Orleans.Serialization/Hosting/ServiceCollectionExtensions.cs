@@ -8,6 +8,7 @@ using Orleans.Serialization.Buffers;
 using Orleans.Serialization.Cloning;
 using Orleans.Serialization.Codecs;
 using Orleans.Serialization.Configuration;
+using Orleans.Serialization.Internal;
 using Orleans.Serialization.Serializers;
 using Orleans.Serialization.Session;
 using Orleans.Serialization.TypeSystem;
@@ -36,7 +37,7 @@ namespace Orleans.Serialization
             if (context is null)
             {
                 context = new ConfigurationContext(services);
-                foreach (var asm in services.GetRelevantAssemblies())
+                foreach (var asm in ReferencedAssemblyProvider.GetRelevantAssemblies())
                 {
                     context.Builder.AddAssembly(asm);
                 }
@@ -44,6 +45,7 @@ namespace Orleans.Serialization
                 services.Add(context.CreateServiceDescriptor());
                 services.AddOptions();
                 services.AddSingleton<IConfigureOptions<TypeManifestOptions>, DefaultTypeManifestProvider>();
+                services.AddSingleton<IPostConfigureOptions<TypeManifestOptions>, DefaultTypeManifestProvider>();
                 services.AddSingleton<TypeResolver, CachedTypeResolver>();
                 services.AddSingleton<TypeConverter>();
                 services.TryAddSingleton<CodecProvider>();

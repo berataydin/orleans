@@ -1,6 +1,6 @@
-using Orleans.Hosting;
 using Orleans.TestingHost;
 using TestExtensions;
+using Tester.AzureUtils;
 using UnitTests.Grains.Directories;
 
 namespace Tester.Directories
@@ -14,7 +14,7 @@ namespace Tester.Directories
             {
                 siloBuilder.AddAzureTableGrainDirectory(
                     CustomDirectoryGrain.DIRECTORY,
-                    options => options.ConfigureTableServiceClient(TestDefaultConfiguration.DataConnectionString));
+                    options => options.TableServiceClient = AzureStorageOperationOptionsExtensions.GetTableServiceClient());
             }
         }
 

@@ -1,9 +1,4 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NonSilo.Tests.Utilities;
@@ -40,7 +35,6 @@ namespace NonSilo.Tests.Membership
         private readonly MembershipAgent agent;
         private readonly ILocalSiloHealthMonitor localSiloHealthMonitor;
         private readonly IOptionsMonitor<ClusterMembershipOptions> optionsMonitor;
-        private readonly IClusterMembershipService membershipService;
 
         public MembershipAgentTests(ITestOutputHelper output)
         {
@@ -75,7 +69,7 @@ namespace NonSilo.Tests.Membership
                 });
 
             this.membershipTable = new InMemoryMembershipTable(new TableVersion(1, "1"));
-            this.clusterMembershipOptions = Options.Create(new ClusterMembershipOptions());
+            this.clusterMembershipOptions = Options.Create(new ClusterMembershipOptions() { MaxJoinAttemptTime = TimeSpan.FromSeconds(45) });
             this.manager = new MembershipTableManager(
                 localSiloDetails: this.localSiloDetails,
                 clusterMembershipOptions: Options.Create(new ClusterMembershipOptions()),
@@ -115,9 +109,6 @@ namespace NonSilo.Tests.Membership
                 this.timerFactory,
                 this.remoteSiloProber);
             ((ILifecycleParticipant<ISiloLifecycle>)this.agent).Participate(this.lifecycle);
-
-            this.membershipService = Substitute.For<IClusterMembershipService>();
-            this.membershipService.CurrentSnapshot.ReturnsForAnyArgs(info => this.manager.MembershipTableSnapshot.CreateClusterMembershipSnapshot());
         }
 
         [Fact]
@@ -129,7 +120,7 @@ namespace NonSilo.Tests.Membership
                 levels[level] = this.manager.CurrentStatus;
                 return Task.CompletedTask;
             };
-            Func<CancellationToken, Task> NoOp = ct => Task.CompletedTask;
+            Task NoOp(CancellationToken ct) => Task.CompletedTask;
             foreach (var l in new[] {
                 ServiceLifecycleStage.RuntimeInitialize,
                 ServiceLifecycleStage.AfterRuntimeGrainServices,
@@ -171,7 +162,7 @@ namespace NonSilo.Tests.Membership
                 levels[level] = this.manager.CurrentStatus;
                 return Task.CompletedTask;
             };
-            Func<CancellationToken, Task> NoOp = ct => Task.CompletedTask;
+            Task NoOp(CancellationToken ct) => Task.CompletedTask;
             foreach (var l in new[] {
                 ServiceLifecycleStage.RuntimeInitialize,
                 ServiceLifecycleStage.AfterRuntimeGrainServices,
@@ -197,7 +188,7 @@ namespace NonSilo.Tests.Membership
             Assert.Equal(SiloStatus.Joining, levels[ServiceLifecycleStage.AfterRuntimeGrainServices + 1]);
             Assert.Equal(SiloStatus.Active, levels[ServiceLifecycleStage.BecomeActive + 1]);
 
-            var cancellation = new CancellationTokenSource();
+            using var cancellation = new CancellationTokenSource();
             cancellation.Cancel();
             await StopLifecycle(cancellation.Token);
 
@@ -271,7 +262,7 @@ namespace NonSilo.Tests.Membership
                 Assert.True(await this.membershipTable.InsertRow(entry, table.Version.Next()));
             }
 
-            Func<SiloHealthMonitor, SiloHealthMonitor.ProbeResult, Task> onProbeResult = (siloHealthMonitor, probeResult) => Task.CompletedTask;
+            Task onProbeResult(SiloHealthMonitor siloHealthMonitor, SiloHealthMonitor.ProbeResult probeResult) => Task.CompletedTask;
 
             var clusterHealthMonitorTestAccessor = (ClusterHealthMonitor.ITestAccessor)this.clusterHealthMonitor;
             clusterHealthMonitorTestAccessor.CreateMonitor = silo => new SiloHealthMonitor(
@@ -282,7 +273,7 @@ namespace NonSilo.Tests.Membership
                 remoteSiloProber,
                 this.timerFactory,
                 this.localSiloHealthMonitor,
-                this.membershipService,
+                manager,
                 this.localSiloDetails);
             var started = this.lifecycle.OnStart();
 
@@ -323,7 +314,7 @@ namespace NonSilo.Tests.Membership
             this.remoteSiloProber.Probe(default, default).ReturnsForAnyArgs(Task.FromException(new Exception("no")));
 
             var dateTimeIndex = 0;
-            var dateTimes = new DateTime[] { DateTime.UtcNow, DateTime.UtcNow.AddMinutes(8) };
+            var dateTimes = new DateTime[] { DateTime.UtcNow, DateTime.UtcNow.AddMinutes(1) };
             var membershipAgentTestAccessor = ((MembershipAgent.ITestAccessor)this.agent).GetDateTime = () => dateTimes[dateTimeIndex++];
 
             var clusterHealthMonitorTestAccessor = (ClusterHealthMonitor.ITestAccessor)this.clusterHealthMonitor;
@@ -335,7 +326,7 @@ namespace NonSilo.Tests.Membership
                 this.remoteSiloProber,
                 this.timerFactory,
                 this.localSiloHealthMonitor,
-                this.membershipService,
+                manager,
                 this.localSiloDetails);
             var started = this.lifecycle.OnStart();
 
@@ -355,7 +346,7 @@ namespace NonSilo.Tests.Membership
         private static async Task Until(Func<bool> condition)
         {
             var maxTimeout = 40_000;
-            while (!condition() && (maxTimeout -= 10) > 0) await Task.Delay(10);
+            while (!condition() && (maxTimeout -= 10) >= 0) await Task.Delay(10);
             Assert.True(maxTimeout > 0);
         }
 

@@ -1,11 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
-using Orleans;
-using Orleans.Hosting;
-using Orleans.Runtime;
 using Orleans.Streams;
 using Orleans.TestingHost;
 using Orleans.TestingHost.Utils;
@@ -47,7 +40,7 @@ namespace ServiceBus.Tests.StreamingTests
                             }));
                             b.UseAzureTableCheckpointer(ob => ob.Configure(options =>
                             {
-                                options.ConfigureTableServiceClient(TestDefaultConfiguration.DataConnectionString);
+                                options.ConfigureTestDefaults();
                                 options.PersistInterval = TimeSpan.FromSeconds(1);
                             }));
                             b.UseDynamicClusterConfigDeploymentBalancer();
@@ -125,7 +118,7 @@ namespace ServiceBus.Tests.StreamingTests
             }
         }
 
-        private async Task<bool> CheckCounters(List<ISampleStreaming_ConsumerGrain> consumers, int totalEventCount, bool assertIsTrue)
+        private static async Task<bool> CheckCounters(List<ISampleStreaming_ConsumerGrain> consumers, int totalEventCount, bool assertIsTrue)
         {
             List<Task<int>> becomeConsumersTasks = consumers
                 .Select((consumer, i) => consumer.GetNumberConsumed())

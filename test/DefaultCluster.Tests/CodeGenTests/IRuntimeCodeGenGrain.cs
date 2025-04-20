@@ -8,6 +8,46 @@ namespace Tester.CodeGenTests
     using Orleans;
     using Orleans.Providers;
 
+    // Regression test for explicit interface method implementations https://github.com/dotnet/orleans/issues/8991
+    public interface IExplicitInterfaceMethodImplementationTestGenericBase<in T>
+    {
+        Task M(T arg);
+    }
+
+    public interface IExplicitInterfaceMethodImplementationTestBase : IExplicitInterfaceMethodImplementationTestGenericBase<object>;
+
+    public interface IExplicitInterfaceMethodImplementationTestDerived : IExplicitInterfaceMethodImplementationTestBase, IExplicitInterfaceMethodImplementationTestGenericBase<string>
+    {
+        Task IExplicitInterfaceMethodImplementationTestGenericBase<object>.M(object obj) => M(obj);
+    }
+
+    public interface IExplicitInterfaceMethodImplementationTestImplementation : IExplicitInterfaceMethodImplementationTestDerived, IGrainWithGuidKey;
+
+    public class ExplicitInterfaceMethodImplementationTestGrain : Grain, IExplicitInterfaceMethodImplementationTestImplementation
+    {
+        public Task M(string arg)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    // End regression test for https://github.com/dotnet/orleans/issues/8991
+
+    public interface IGrainWithNonPublicMethods : IGrainWithGuidKey
+    {
+        internal class P1;
+        internal Task M1(P1 arg);
+
+        //protected class P2;
+        //protected Task M2(P2 arg);
+
+        internal protected class P3;
+        internal protected Task M3(P3 arg);
+
+        //private protected class P4;
+        //private protected Task M4(P4 arg);
+    }
+
     public interface IGrainWithGenericMethods : IGrainWithGuidKey
     {
         Task<Type[]> GetTypesExplicit<T, U, V>();
@@ -238,17 +278,7 @@ namespace Tester.CodeGenTests
             return this.Equals((@event)obj);
         }
 
-        public override int GetHashCode()
-        {
-            unchecked
-            {
-                var hashCode = (this.@if != null ? this.@if.GetHashCode() : 0);
-                hashCode = (hashCode * 397) ^ (this.@public != null ? this.@public.GetHashCode() : 0);
-                hashCode = (hashCode * 397) ^ this.privateId.GetHashCode();
-                hashCode = (hashCode * 397) ^ this.Id.GetHashCode();
-                return hashCode;
-            }
-        }
+        public override int GetHashCode() => HashCode.Combine(@if, @public, privateId, Id, Enum);
 
         public bool Equals(@event other)
         {
@@ -342,4 +372,17 @@ namespace Tester.CodeGenTests
             return Task.FromResult(value.Payload.Value);
         }
     }
+
+    public interface IGrainWithStaticMembers : IGrainWithGuidKey
+    {
+        public static int StaticMethodWithNonAsyncReturnType(int a) => 0;
+        public static virtual int StaticVirtualMethodWithNonAsyncReturnType(int a) => 0;
+        public static int StaticProperty => 0;
+        public static virtual int StaticVirtualProperty => 0;
+        public static int StaticMethodWithOutAndVarParams(out int a, ref int b) { a = 0; return 0; }
+        public static virtual int StaticVirtualMethodWithOutAndVarParams(out int a, ref int b) { a = 0; return 0; }
+    }
+
+    public class GrainWithStaticMembers : Grain, IGrainWithStaticMembers
+    { }
 }

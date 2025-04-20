@@ -292,6 +292,7 @@ namespace Orleans.Serialization.GeneratedCodeHelpers
         /// </summary>
         public abstract class ExceptionCopier<T, B> : IDeepCopier<T>, IBaseCopier<T> where T : B where B : Exception
         {
+            private readonly Type _fieldType = typeof(T);
             private readonly IActivator<T> _activator;
             private readonly IBaseCopier<B> _baseTypeCopier;
 
@@ -304,10 +305,14 @@ namespace Orleans.Serialization.GeneratedCodeHelpers
             public T DeepCopy(T original, CopyContext context)
             {
                 if (original is null)
+                {
                     return null;
+                }
 
-                if (original.GetType() != typeof(T))
+                if (original.GetType() != _fieldType)
+                {
                     return context.DeepCopy(original);
+                }
 
                 var result = _activator.Create();
                 DeepCopy(original, result, context);

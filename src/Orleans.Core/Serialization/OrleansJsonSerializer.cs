@@ -1,13 +1,10 @@
 using System;
 using System.Net;
-using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Orleans.Runtime;
 using Orleans.GrainReferences;
-using Orleans.Serialization.TypeSystem;
 using Microsoft.Extensions.Options;
-using System.Globalization;
 
 namespace Orleans.Serialization
 {
@@ -195,7 +192,7 @@ namespace Orleans.Serialization
             return reader.Value switch
             {
                 long l => new MembershipVersion(l),
-                _ => default(MembershipVersion)
+                _ => default
             };
         }
     }
@@ -292,7 +289,7 @@ namespace Orleans.Serialization
         /// <inheritdoc/>
         public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
         {
-            var val = (GrainReference)value;
+            var val = ((IAddressable)value).AsReference();  
             writer.WriteStartObject();
             writer.WritePropertyName("Id");
             writer.WriteStartObject();
@@ -312,7 +309,8 @@ namespace Orleans.Serialization
             JObject jo = JObject.Load(reader);
             var id = jo["Id"];
             GrainId grainId = GrainId.Create(id["Type"].ToObject<string>(), id["Key"].ToObject<string>());
-            var iface = GrainInterfaceType.Create(jo["Interface"].ToString());
+            var encodedInterface = jo["Interface"].ToString();
+            var iface = string.IsNullOrWhiteSpace(encodedInterface) ? default : GrainInterfaceType.Create(encodedInterface);
             return this.referenceActivator.CreateReference(grainId, iface);
         }
     }

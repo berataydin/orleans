@@ -1,15 +1,12 @@
-using System.Threading.Tasks;
 using AWSUtils.Tests.StorageTests;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Configuration;
-using Orleans.Hosting;
 using Orleans.TestingHost;
 using UnitTests.StreamingTests;
 using Xunit;
 using TestExtensions;
 using UnitTests.Streaming;
 using OrleansAWSUtils.Streams;
-using Orleans;
 
 namespace AWSUtils.Tests.Streaming
 {
@@ -199,7 +196,7 @@ namespace AWSUtils.Tests.Streaming
         {
             var multiRunner = new MultipleStreamsTestRunner(this.InternalClient, SQS_STREAM_PROVIDER_NAME, 17, false);
             await multiRunner.StreamTest_MultipleStreams_ManyDifferent_ManyProducerGrainsManyConsumerGrains(
-                this.HostedCluster.StartAdditionalSilo);
+                () => HostedCluster.StartAdditionalSilo());
         }
     }
 }

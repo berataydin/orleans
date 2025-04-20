@@ -1,7 +1,3 @@
-using System;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Orleans.Tests.SqlUtils;
 using UnitTests.General;
 using Xunit;
@@ -32,7 +28,7 @@ namespace UnitTests.StorageTests.AdoNet
             public RelationalStorageForTesting Storage { get; private set; }
         }
 
-        public SqlServerRelationalStoreTests(Fixture fixture)
+        public SqlServerRelationalStoreTests(Fixture fixture) : base(AdoNetInvariantName)
         {
             _storage = fixture.Storage;
         }

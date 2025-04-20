@@ -1,7 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using Orleans;
+using Orleans.Concurrency;
 
 namespace UnitTests.GrainInterfaces
 {
@@ -196,18 +193,29 @@ namespace UnitTests.GrainInterfaces
     {
         Task<string> GetRuntimeInstanceId();
         Task<string> GetRuntimeInstanceIdWithDelay(TimeSpan delay);
-
-        Task LongWait(GrainCancellationToken tc, TimeSpan delay);
         Task<T> LongRunningTask(T t, TimeSpan delay);
         Task<T> CallOtherLongRunningTask(ILongRunningTaskGrain<T> target, T t, TimeSpan delay);
         Task<T> FanOutOtherLongRunningTask(ILongRunningTaskGrain<T> target, T t, TimeSpan delay, int degreeOfParallelism);
-        Task CallOtherLongRunningTask(ILongRunningTaskGrain<T> target, GrainCancellationToken tc, TimeSpan delay);
-        Task CallOtherLongRunningTaskWithLocalToken(ILongRunningTaskGrain<T> target, TimeSpan delay,
-            TimeSpan delayBeforeCancel);
-        Task<bool> CancellationTokenCallbackResolve(GrainCancellationToken tc);
-        Task<bool> CallOtherCancellationTokenCallbackResolve(ILongRunningTaskGrain<T> target);
-        Task CancellationTokenCallbackThrow(GrainCancellationToken tc);
+
+        Task LongWaitGrainCancellation(GrainCancellationToken tc, TimeSpan delay, Guid callId);
+        [AlwaysInterleave]
+        Task LongWaitGrainCancellationInterleaving(GrainCancellationToken tc, TimeSpan delay, Guid callId);
+        Task LongWait(CancellationToken tc, TimeSpan delay, Guid callId);
+        [AlwaysInterleave]
+        Task LongWaitInterleaving(CancellationToken tc, TimeSpan delay, Guid callId);
+        Task CallOtherLongRunningTask(ILongRunningTaskGrain<T> target, CancellationToken tc, TimeSpan delay, Guid callId);
+        Task CallOtherLongRunningTaskGrainCancellation(ILongRunningTaskGrain<T> target, GrainCancellationToken tc, TimeSpan delay, Guid callId);
+        Task CallOtherLongRunningTaskWithLocalGrainCancellationToken(ILongRunningTaskGrain<T> target, TimeSpan delay, TimeSpan delayBeforeCancel, Guid callId);
+        Task CallOtherLongRunningTaskWithLocalCancellation(ILongRunningTaskGrain<T> target, TimeSpan delay, TimeSpan delayBeforeCancel, Guid callId);
+        Task<bool> GrainCancellationTokenCallbackResolve(GrainCancellationToken tc, Guid callId);
+        Task<bool> CancellationTokenCallbackResolve(CancellationToken tc, Guid callId);
+        Task<bool> CallOtherGrainCancellationTokenCallbackResolve(ILongRunningTaskGrain<T> target, Guid callId);
+        Task<bool> CallOtherCancellationTokenCallbackResolve(ILongRunningTaskGrain<T> target, Guid callId);
+        Task GrainCancellationTokenCallbackThrow(GrainCancellationToken tc, Guid callId);
+        Task CancellationTokenCallbackThrow(CancellationToken tc, Guid callId);
         Task<T> GetLastValue();
+
+        IAsyncEnumerable<(Guid CallId, Exception Error)> WatchCancellations(CancellationToken cancellationToken = default);
     }
 
     [Alias("IGenericGrainWithConstraints`3")]
@@ -231,7 +239,15 @@ namespace UnitTests.GrainInterfaces
     public interface IGenericCastableGrain<T> : IGrainWithGuidKey
     { }
 
+    public interface IGenericRegisterGrain<T> : IGrainWithIntegerKey
+    {
+        Task Set(T value);
+        Task<T> Get();
+    }
 
+    public interface IGenericArrayRegisterGrain<T> : IGenericRegisterGrain<T[]>
+    {
+    }
 
     public interface IGrainSayingHello : IGrainWithGuidKey
     {
@@ -253,8 +269,6 @@ namespace UnitTests.GrainInterfaces
     { }
 
 
-
-
     namespace Generic.EdgeCases
     {
         public interface IBasicGrain : IGrainWithGuidKey
@@ -273,14 +287,11 @@ namespace UnitTests.GrainInterfaces
         public interface IGrainReceivingRepeatedGenArgs<T1, T2> : IBasicGrain
         { }
 
-
         public interface IPartiallySpecifyingInterface<T> : IGrainWithTwoGenArgs<T, int>
         { }
 
-
         public interface IReceivingRepeatedGenArgsAmongstOthers<T1, T2, T3> : IBasicGrain
         { }
-
 
         public interface IReceivingRepeatedGenArgsFromOtherInterface<T1, T2, T3> : IBasicGrain
         { }
@@ -288,11 +299,8 @@ namespace UnitTests.GrainInterfaces
         public interface ISpecifyingGenArgsRepeatedlyToParentInterface<T> : IReceivingRepeatedGenArgsFromOtherInterface<T, T, T>
         { }
 
-
         public interface IReceivingRearrangedGenArgs<T1, T2> : IBasicGrain
         { }
-
-
 
         public interface IReceivingRearrangedGenArgsViaCast<T1, T2> : IBasicGrain
         { }
@@ -300,13 +308,11 @@ namespace UnitTests.GrainInterfaces
         public interface ISpecifyingRearrangedGenArgsToParentInterface<T1, T2> : IReceivingRearrangedGenArgsViaCast<T2, T1>
         { }
 
-
         public interface IArbitraryInterface<T1, T2> : IBasicGrain
         { }
 
         public interface IInterfaceUnrelatedToConcreteGenArgs<T> : IBasicGrain
         { }
-
 
         public interface IInterfaceTakingFurtherSpecializedGenArg<T> : IBasicGrain
         { }

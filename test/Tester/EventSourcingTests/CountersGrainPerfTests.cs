@@ -1,10 +1,6 @@
-﻿using System;
-using System.Threading.Tasks;
-using System.Linq;
 using TestGrainInterfaces;
 using Xunit;
 using Xunit.Abstractions;
-using System.Collections.Generic;
 using Xunit.Sdk;
 
 namespace Tester.EventSourcingTests
@@ -26,9 +22,9 @@ namespace Tester.EventSourcingTests
         // what you should see is:
         // - the conservative approach (confirm each update, disallow reentrancy) is slow.
         // - confirming at end only, instead of after each update, is fast.
-        // - allowing reentrancy, while still confirming after each update, is also fast. 
+        // - allowing reentrancy, while still confirming after each update, is also fast.
 
-        private int iterations = 800;
+        private const int iterations = 800;
 
         [Fact, RunThisFirst, TestCategory("EventSourcing")]
         public Task Perf_Warmup()
@@ -94,13 +90,13 @@ namespace Tester.EventSourcingTests
 
     }
 
-    class RunThisFirstAttribute : Attribute
+    internal class RunThisFirstAttribute : Attribute
     {
     }
 
     public class SimplePriorityOrderer : ITestCaseOrderer
     {
-        private string attrname = typeof(RunThisFirstAttribute).AssemblyQualifiedName;
+        private readonly string attrname = typeof(RunThisFirstAttribute).AssemblyQualifiedName;
 
         private bool HasRunThisFirstAttribute(ITestCase testcase)
         {

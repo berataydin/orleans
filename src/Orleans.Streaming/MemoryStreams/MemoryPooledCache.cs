@@ -77,7 +77,7 @@ namespace Orleans.Providers
                 // if this fails with clean block, then requested size is too big
                 if (!currentBuffer.TryGetSegment(size, out segment))
                 {
-                    string errmsg = String.Format(CultureInfo.InvariantCulture,
+                    string errmsg = string.Format(CultureInfo.InvariantCulture,
                         "Message size is too big. MessageSize: {0}", size);
                     throw new ArgumentOutOfRangeException(nameof(queueMessage), errmsg);
                 }
@@ -88,7 +88,7 @@ namespace Orleans.Providers
             return segment;
         }
 
-        private StreamPosition GetStreamPosition(MemoryMessageData queueMessage)
+        private static StreamPosition GetStreamPosition(MemoryMessageData queueMessage)
         {
             return new StreamPosition(queueMessage.StreamId,
                 new EventSequenceTokenV2(queueMessage.SequenceNumber));

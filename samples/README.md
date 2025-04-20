@@ -1,6 +1,7 @@
 # Orleans Samples
 
-📢 This collection of samples has been moved to the official `dotnet/samples` repository and is part of the Samples browser experience.
+> [!IMPORTANT]
+> 📢 This collection of samples has been moved to the official [`dotnet/samples` repository](https://github.com/dotnet/samples/tree/main/orleans) and is part of the [Samples browser experience](https://learn.microsoft.com/en-us/samples/browse/?expanded=dotnet&products=dotnet-orleans).
 
 - :octocat: [dotnet/samples](https://github.com/dotnet/samples/tree/main/orleans)
 - :eyes: [Samples browser](https://learn.microsoft.com/samples/browse/?expanded=dotnet&products=dotnet-orleans)
@@ -235,6 +236,22 @@ In-memory clustering example where everything is written in F#:
 ### Demonstrates
 
 - How to develop Orleans-based applications using F# end to end
+
+## [F# Reminder](https://github.com/PiotrJustyna/road-to-orleans/tree/main/1b#readme)
+
+- How to use grain reminders in an F# grain
+
+### Demonstrates
+
+- How to develop a reminder grain in F#
+
+## [F# Grain Service](https://github.com/PiotrJustyna/road-to-orleans/tree/main/1c#readme)
+
+- How to use grain service from other grains in F#
+
+### Demonstrates
+
+- How to develop grain service and grain service client in F#
 
 ## [Streaming: Pub/Sub Streams over Azure Event Hubs](https://learn.microsoft.com/samples/dotnet/samples/orleans-streaming-pubsub-with-azure-event-hub)
 

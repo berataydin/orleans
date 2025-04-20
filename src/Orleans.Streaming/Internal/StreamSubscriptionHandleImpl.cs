@@ -57,10 +57,10 @@ namespace Orleans.Streams
             StreamSequenceToken token,
             string filterData)
         {
-            this.subscriptionId = subscriptionId ?? throw new ArgumentNullException("subscriptionId");
+            this.subscriptionId = subscriptionId ?? throw new ArgumentNullException(nameof(subscriptionId));
             this.observer = observer;
             this.batchObserver = batchObserver;
-            this.streamImpl = streamImpl ?? throw new ArgumentNullException("streamImpl");
+            this.streamImpl = streamImpl ?? throw new ArgumentNullException(nameof(streamImpl));
             this.filterData = filterData;
             this.isRewindable = streamImpl.IsRewindable;
             if (IsRewindable)
@@ -107,6 +107,14 @@ namespace Orleans.Streams
             {
                 if (!this.expectedToken.Equals(handshakeToken))
                     return this.expectedToken;
+
+                // Check if this even already has been delivered
+                if (IsRewindable)
+                {
+                    var currentToken = StreamHandshakeToken.CreateDeliveyToken(batch.SequenceToken);
+                    if (this.expectedToken.Equals(currentToken))
+                        return this.expectedToken;
+                }
             }
 
             if (batch is IBatchContainerBatch)
@@ -132,6 +140,7 @@ namespace Orleans.Streams
             {
                 this.expectedToken = StreamHandshakeToken.CreateDeliveyToken(batch.SequenceToken);
             }
+
             return null;
         }
 
@@ -141,6 +150,13 @@ namespace Orleans.Streams
             {
                 if (!this.expectedToken.Equals(handshakeToken))
                     return this.expectedToken;
+
+                // Check if this even already has been delivered
+                if (IsRewindable)
+                {
+                    if (this.expectedToken.Equals(currentToken))
+                        return this.expectedToken;
+                }
             }
 
             T typedItem;
@@ -265,7 +281,7 @@ namespace Orleans.Streams
 
         public override string ToString()
         {
-            return String.Format("StreamSubscriptionHandleImpl:Stream={0},HandleId={1}", IsValid ? streamImpl.InternalStreamId.ToString() : "null", HandleId);
+            return string.Format("StreamSubscriptionHandleImpl:Stream={0},HandleId={1}", IsValid ? streamImpl.InternalStreamId.ToString() : "null", HandleId);
         }
     }
 }

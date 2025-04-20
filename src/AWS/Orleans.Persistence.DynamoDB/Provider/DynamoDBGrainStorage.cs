@@ -13,6 +13,7 @@ using Amazon.DynamoDBv2.Model;
 using Orleans.Configuration;
 using Orleans.Persistence.DynamoDB;
 using Orleans.Runtime;
+using Orleans.Serialization.Serializers;
 
 namespace Orleans.Storage
 {
@@ -31,8 +32,8 @@ namespace Orleans.Storage
         private const string CURRENT_ETAG_ALIAS = ":currentETag";
 
         private readonly DynamoDBStorageOptions options;
+        private readonly IActivatorProvider _activatorProvider;
         private readonly ILogger logger;
-        private readonly IServiceProvider serviceProvider;
         private readonly string name;
 
         private DynamoDBStorage storage;
@@ -43,13 +44,13 @@ namespace Orleans.Storage
         public DynamoDBGrainStorage(
             string name,
             DynamoDBStorageOptions options,
-            IServiceProvider serviceProvider,
+            IActivatorProvider activatorProvider,
             ILogger<DynamoDBGrainStorage> logger)
         {
             this.name = name;
             this.logger = logger;
             this.options = options;
-            this.serviceProvider = serviceProvider;
+            _activatorProvider = activatorProvider;
         }
 
         public void Participate(ISiloLifecycle lifecycle)
@@ -149,11 +150,13 @@ namespace Orleans.Storage
             {
                 var loadedState = ConvertFromStorageFormat<T>(record);
                 grainState.RecordExists = loadedState != null;
-                grainState.State = loadedState ?? Activator.CreateInstance<T>();
+                grainState.State = loadedState ?? CreateInstance<T>();
                 grainState.ETag = record.ETag.ToString();
             }
-
-            // Else leave grainState in previous default condition
+            else
+            {
+                ResetGrainState(grainState);
+            }
         }
 
         /// <summary> Write state data function for this storage provider. </summary>
@@ -181,7 +184,7 @@ namespace Orleans.Storage
                 this.logger.LogError(
                     (int)ErrorCode.StorageProviderBase,
                     exc,
-                    "Error Writing: GrainType={GrainType} Grainid={GrainId} ETag={ETag} to Table={TableName}",
+                    "Error Writing: GrainType={GrainType} GrainId={GrainId} ETag={ETag} to Table={TableName}",
                     grainType,
                     grainId,
                     grainState.ETag,
@@ -289,11 +292,13 @@ namespace Orleans.Storage
                     keys.Add(GRAIN_TYPE_PROPERTY_NAME, new AttributeValue(record.GrainType));
 
                     await this.storage.DeleteEntryAsync(this.options.TableName, keys).ConfigureAwait(false);
-                    grainState.ETag = null;
+                    ResetGrainState(grainState);
                 }
                 else
                 {
                     await WriteStateInternal(grainState, record, true);
+                    grainState.State = CreateInstance<T>();
+                    grainState.RecordExists = false;
                 }
             }
             catch (Exception exc)
@@ -330,7 +335,8 @@ namespace Orleans.Storage
             T dataValue = default;
             try
             {
-                dataValue = this.options.GrainStorageSerializer.Deserialize<T>(entity.State);
+                if (entity.State is { Length: > 0 })
+                    dataValue = this.options.GrainStorageSerializer.Deserialize<T>(entity.State);
             }
             catch (Exception exc)
             {
@@ -370,11 +376,20 @@ namespace Orleans.Storage
                 throw new ArgumentOutOfRangeException("GrainState.Size", msg);
             }
         }
+
+        private void ResetGrainState<T>(IGrainState<T> grainState)
+        {
+            grainState.RecordExists = false;
+            grainState.ETag = null;
+            grainState.State = CreateInstance<T>();
+        }
+
+        private T CreateInstance<T>() => _activatorProvider.GetActivator<T>().Create();
     }
 
     public static class DynamoDBGrainStorageFactory
     {
-        public static IGrainStorage Create(IServiceProvider services, string name)
+        public static DynamoDBGrainStorage Create(IServiceProvider services, string name)
         {
             var optionsMonitor = services.GetRequiredService<IOptionsMonitor<DynamoDBStorageOptions>>();
             return ActivatorUtilities.CreateInstance<DynamoDBGrainStorage>(services, optionsMonitor.Get(name), name);

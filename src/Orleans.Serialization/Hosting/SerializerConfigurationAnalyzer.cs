@@ -1,8 +1,9 @@
-﻿using Orleans.Serialization.Configuration;
+using Orleans.Serialization.Configuration;
 using Orleans.Serialization.Serializers;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Orleans.Serialization
@@ -29,7 +30,7 @@ namespace Orleans.Serialization
             var allComplaints = new Dictionary<Type, SerializerConfigurationComplaint>();
             foreach (var @interface in options.Interfaces)
             {
-                foreach (var method in @interface.GetMethods())
+                foreach (var method in @interface.GetMethods(BindingFlags.Instance | BindingFlags.Public))
                 {
                     if (typeof(Task).IsAssignableFrom(method.ReturnType))
                     {
@@ -84,7 +85,7 @@ namespace Orleans.Serialization
 
             bool IsEligibleType(Type type)
             {
-                if (type.IsGenericTypeParameter || type.IsGenericMethodParameter || type.ContainsGenericParameters)
+                if (type.IsGenericTypeParameter || type.IsGenericMethodParameter || type.ContainsGenericParameters || type.Equals(typeof(CancellationToken)))
                 {
                     return false;
                 }

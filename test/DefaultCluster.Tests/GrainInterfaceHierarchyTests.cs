@@ -1,5 +1,3 @@
-using System.Threading.Tasks;
-using Orleans;
 using TestExtensions;
 using TestGrainInterfaces;
 using Xunit;
@@ -92,7 +90,6 @@ namespace DefaultCluster.Tests
             Assert.Equal(11, await doSomethingCombinedGrain.GetA());
             Assert.Equal(11, await doSomethingCombinedGrain.GetB());
             Assert.Equal(11, await doSomethingCombinedGrain.GetC());
-
         }
     }
 }

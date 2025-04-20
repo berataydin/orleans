@@ -1,19 +1,9 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
-using Orleans;
 using Orleans.BroadcastChannel;
-using Orleans.Hosting;
-using Orleans.Runtime;
 using Orleans.TestingHost;
 using TestExtensions;
 using UnitTests.Grains.BroadcastChannel;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Tester.StreamingTests.BroadcastChannel
 {
@@ -198,7 +188,7 @@ namespace Tester.StreamingTests.BroadcastChannel
                 await stream.Publish(2);
                 // Wait to be sure that published event reached the grain
                 var counter = 0;
-                var cts = new CancellationTokenSource(CallTimeoutMs);
+                using var cts = new CancellationTokenSource(CallTimeoutMs);
                 while (!cts.IsCancellationRequested)
                 {
                     counter = await badGrain.GetOnPublishedCounter();
@@ -248,7 +238,7 @@ namespace Tester.StreamingTests.BroadcastChannel
 
         private static async Task<List<T>> Get<T>(Func<Task<List<T>>> func, int expectedCount, int timeoutMs = CallTimeoutMs)
         {
-            var cts = new CancellationTokenSource(timeoutMs);
+            using var cts = new CancellationTokenSource(timeoutMs);
             while (!cts.IsCancellationRequested)
             {
                 try

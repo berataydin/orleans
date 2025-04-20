@@ -1,16 +1,12 @@
-using System;
-using System.Collections.Generic;
 using System.CommandLine;
 using System.CommandLine.Invocation;
-using System.Threading.Tasks;
+using DistributedTests.Common;
 using DistributedTests.GrainInterfaces;
 using Microsoft.Crank.EventSources;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Configuration;
-using Orleans.Hosting;
 
 namespace DistributedTests.Client.Commands
 {
@@ -22,7 +18,8 @@ namespace DistributedTests.Client.Commands
         {
             public string ServiceId { get; set; }
             public string ClusterId { get; set; }
-            public SecretConfiguration.SecretSource SecretSource { get; set; }
+            public Uri AzureTableUri { get; set; }
+            public Uri AzureQueueUri { get; set; }
             public string CounterKey { get; set; }
             public List<string> Counters { get; set; }
         }
@@ -32,7 +29,8 @@ namespace DistributedTests.Client.Commands
         {
             AddOption(OptionHelper.CreateOption<string>("--serviceId", isRequired: true));
             AddOption(OptionHelper.CreateOption<string>("--clusterId", isRequired: true));
-            AddOption(OptionHelper.CreateOption("--secretSource", defaultValue: SecretConfiguration.SecretSource.File));
+            AddOption(OptionHelper.CreateOption<Uri>("--azureTableUri", isRequired: true));
+            AddOption(OptionHelper.CreateOption<Uri>("--azureQueueUri", isRequired: true));
             AddOption(OptionHelper.CreateOption("--counterKey", defaultValue: StreamingConstants.DefaultCounterGrain));
             AddArgument(new Argument<List<string>>("Counters") { Arity = ArgumentArity.OneOrMore });
 
@@ -43,12 +41,11 @@ namespace DistributedTests.Client.Commands
         private async Task RunAsync(Parameters parameters)
         {
             _logger.LogInformation("Connecting to cluster...");
-            var secrets = SecretConfiguration.Load(parameters.SecretSource);
             var hostBuilder = new HostBuilder()
                 .UseOrleansClient((ctx, builder) => {
                     builder
                         .Configure<ClusterOptions>(options => { options.ClusterId = parameters.ClusterId; options.ServiceId = parameters.ServiceId; })
-                        .UseAzureStorageClustering(options => options.ConfigureTableServiceClient(secrets.ClusteringConnectionString));
+                        .UseAzureStorageClustering(options => options.TableServiceClient = parameters.AzureTableUri.CreateTableServiceClient());
                 });
             using var host = hostBuilder.Build();
             await host.StartAsync();

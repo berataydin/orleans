@@ -11,13 +11,13 @@ namespace Orleans.Streams
         
         public static StreamHandshakeToken CreateStartToken(StreamSequenceToken token)
         {
-            if (token == null) return default(StreamHandshakeToken);
+            if (token == null) return default;
             return new StartToken {Token = token};
         }
 
         public static StreamHandshakeToken CreateDeliveyToken(StreamSequenceToken token)
         {
-            if (token == null) return default(StreamHandshakeToken);
+            if (token == null) return default;
             return new DeliveryToken {Token = token};
         }
 
@@ -37,13 +37,7 @@ namespace Orleans.Streams
             return Equals((StreamHandshakeToken)obj);
         }
 
-        public override int GetHashCode()
-        {
-            unchecked
-            {
-                return (GetType().GetHashCode() * 397) ^ (Token != null ? Token.GetHashCode() : 0);
-            }
-        }
+        public override int GetHashCode() => HashCode.Combine(GetType(), Token);
     }
 
     [Serializable]

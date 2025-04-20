@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.ExceptionServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Orleans.Runtime;
 
@@ -44,7 +45,7 @@ namespace Orleans.Internal
             TimeSpan maxExecutionTime,
             IBackoffProvider onErrorBackOff)
         {
-            Func<int, Task<bool>> function = async (int i) => { await action(i); return true; };
+            async Task<bool> function(int i) { await action(i); return true; }
             return ExecuteWithRetriesHelper<bool>(
                 function,
                 0,
@@ -83,7 +84,8 @@ namespace Orleans.Internal
             int maxNumErrorTries,
             Func<Exception, int, bool> retryExceptionFilter,
             TimeSpan maxExecutionTime,
-            IBackoffProvider onErrorBackOff)
+            IBackoffProvider onErrorBackOff,
+            CancellationToken cancellationToken = default)
         {
             return ExecuteWithRetries<T>(
                 function,
@@ -93,7 +95,8 @@ namespace Orleans.Internal
                 retryExceptionFilter,
                 maxExecutionTime,
                 null,
-                onErrorBackOff);
+                onErrorBackOff,
+                cancellationToken);
         }
 
         /// <summary>
@@ -137,9 +140,10 @@ namespace Orleans.Internal
             int maxNumErrorTries,
             Func<T, int, bool> retryValueFilter,
             Func<Exception, int, bool> retryExceptionFilter,
-            TimeSpan maxExecutionTime = default(TimeSpan),
+            TimeSpan maxExecutionTime = default,
             IBackoffProvider onSuccessBackOff = null,
-            IBackoffProvider onErrorBackOff = null)
+            IBackoffProvider onErrorBackOff = null,
+            CancellationToken cancellationToken = default)
         {
             return ExecuteWithRetriesHelper<T>(
                 function,
@@ -150,7 +154,8 @@ namespace Orleans.Internal
                 retryValueFilter,
                 retryExceptionFilter,
                 onSuccessBackOff,
-                onErrorBackOff);
+                onErrorBackOff,
+                cancellationToken);
         }
 
         /// <summary>
@@ -200,9 +205,10 @@ namespace Orleans.Internal
             Func<T, int, bool> retryValueFilter = null,
             Func<Exception, int, bool> retryExceptionFilter = null,
             IBackoffProvider onSuccessBackOff = null,
-            IBackoffProvider onErrorBackOff = null)
+            IBackoffProvider onErrorBackOff = null,
+            CancellationToken cancellationToken = default)
         {
-            T result = default(T);
+            T result = default;
             ExceptionDispatchInfo lastExceptionInfo = null;
             bool retry;
             var callCounter = 0;
@@ -210,8 +216,9 @@ namespace Orleans.Internal
             do
             {
                 retry = false;
+                cancellationToken.ThrowIfCancellationRequested();
 
-                if (maxExecutionTime != Constants.INFINITE_TIMESPAN && maxExecutionTime != default(TimeSpan))
+                if (maxExecutionTime != Timeout.InfiniteTimeSpan && maxExecutionTime != default)
                 {
                     DateTime now = DateTime.UtcNow;
                     if (now - startExecutionTime > maxExecutionTime)
@@ -240,13 +247,13 @@ namespace Orleans.Internal
                             retry = retryValueFilter(result, counter);
                     }
 
-                    if (retry)
+                    if (retry && !cancellationToken.IsCancellationRequested)
                     {
                         TimeSpan? delay = onSuccessBackOff?.Next(counter);
 
                         if (delay.HasValue)
                         {
-                            await Task.Delay(delay.Value);
+                            await Task.Delay(delay.Value, cancellationToken);
                         }
                     }
                 }
@@ -260,7 +267,7 @@ namespace Orleans.Internal
                             retry = retryExceptionFilter(exc, counter);
                     }
 
-                    if (!retry)
+                    if (!retry || cancellationToken.IsCancellationRequested)
                     {
                         throw;
                     }
@@ -271,7 +278,7 @@ namespace Orleans.Internal
 
                     if (delay.HasValue)
                     {
-                        await Task.Delay(delay.Value);
+                        await Task.Delay(delay.Value, cancellationToken);
                     }
                 }
             } while (retry);
@@ -346,10 +353,10 @@ namespace Orleans.Internal
         /// </exception>
         public ExponentialBackoff(TimeSpan minDelay, TimeSpan maxDelay, TimeSpan step)
         {
-            if (minDelay <= TimeSpan.Zero) throw new ArgumentOutOfRangeException("minDelay", minDelay, "ExponentialBackoff min delay must be a positive number.");
-            if (maxDelay <= TimeSpan.Zero) throw new ArgumentOutOfRangeException("maxDelay", maxDelay, "ExponentialBackoff max delay must be a positive number.");
-            if (step <= TimeSpan.Zero) throw new ArgumentOutOfRangeException("step", step, "ExponentialBackoff step must be a positive number.");
-            if (minDelay >= maxDelay) throw new ArgumentOutOfRangeException("minDelay", minDelay, "ExponentialBackoff min delay must be greater than max delay.");
+            if (minDelay <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(minDelay), minDelay, "ExponentialBackoff min delay must be a positive number.");
+            if (maxDelay <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(maxDelay), maxDelay, "ExponentialBackoff max delay must be a positive number.");
+            if (step <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(step), step, "ExponentialBackoff step must be a positive number.");
+            if (minDelay >= maxDelay) throw new ArgumentOutOfRangeException(nameof(minDelay), minDelay, "ExponentialBackoff min delay must be greater than max delay.");
 
             this.minDelay = minDelay;
             this.maxDelay = maxDelay;

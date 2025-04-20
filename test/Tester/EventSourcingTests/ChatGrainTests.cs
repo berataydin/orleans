@@ -1,11 +1,7 @@
-using System;
-using System.Threading.Tasks;
-using System.Linq;
 using TestGrainInterfaces;
 using Xunit;
 using Assert = Xunit.Assert;
 using System.Xml.Linq;
-using System.IO;
 using TestGrains;
 
 namespace Tester.EventSourcingTests
@@ -26,8 +22,8 @@ namespace Tester.EventSourcingTests
 
             var content = (await chat.GetChat()).ToString();
 
-            var expectedprefix = "<!--This chat room was created by TestGrains.ChatGrain-->\r\n<root>\r\n  <created>";
-            var expectedsuffix = "</created>\r\n  <posts />\r\n</root>";
+            var expectedprefix = $"<!--This chat room was created by TestGrains.ChatGrain-->{Environment.NewLine}<root>{Environment.NewLine}  <created>";
+            var expectedsuffix = $"</created>{Environment.NewLine}  <posts />{Environment.NewLine}</root>";
  
             Assert.StartsWith(expectedprefix, content);
             Assert.EndsWith(expectedsuffix, content);

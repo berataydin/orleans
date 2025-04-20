@@ -1,37 +1,43 @@
+#nullable enable
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Orleans.GrainReferences;
 using Orleans.Internal;
 using Orleans.Runtime.Messaging;
 using Orleans.Serialization;
+using Orleans.Serialization.Invocation;
 
 namespace Orleans.Runtime
 {
     /// <summary>
     /// A client which is hosted within a silo.
     /// </summary>
-    internal sealed class HostedClient : IGrainContext, IGrainExtensionBinder, IDisposable, ILifecycleParticipant<ISiloLifecycle>
+    internal sealed partial class HostedClient : IGrainContext, IGrainExtensionBinder, IDisposable, ILifecycleParticipant<ISiloLifecycle>
     {
         private readonly object lockObj = new object();
         private readonly Channel<Message> incomingMessages;
         private readonly IGrainReferenceRuntime grainReferenceRuntime;
         private readonly InvokableObjectManager invokableObjects;
-        private readonly IRuntimeClient runtimeClient;
+        private readonly InsideRuntimeClient runtimeClient;
         private readonly ILogger logger;
         private readonly IInternalGrainFactory grainFactory;
         private readonly MessageCenter siloMessageCenter;
         private readonly MessagingTrace messagingTrace;
         private readonly ConcurrentDictionary<Type, (object Implementation, IAddressable Reference)> _extensions = new ConcurrentDictionary<Type, (object, IAddressable)>();
+        private readonly ConcurrentDictionary<Type, object> _components = new();
+        private readonly IServiceScope _serviceProviderScope;
         private bool disposing;
-        private Task messagePump;
+        private Task? messagePump;
 
         public HostedClient(
-            IRuntimeClient runtimeClient,
+            InsideRuntimeClient runtimeClient,
             ILocalSiloDetails siloDetails,
             ILogger<HostedClient> logger,
             IGrainReferenceRuntime grainReferenceRuntime,
@@ -39,7 +45,8 @@ namespace Orleans.Runtime
             MessageCenter messageCenter,
             MessagingTrace messagingTrace,
             DeepCopier deepCopier,
-            GrainReferenceActivator referenceActivator)
+            GrainReferenceActivator referenceActivator,
+            InterfaceToImplementationMappingCache interfaceToImplementationMappingCache)
         {
             this.incomingMessages = Channel.CreateUnbounded<Message>(new UnboundedChannelOptions
             {
@@ -56,6 +63,8 @@ namespace Orleans.Runtime
                 runtimeClient,
                 deepCopier,
                 messagingTrace,
+                runtimeClient.ServiceProvider.GetRequiredService<DeepCopier<Response>>(),
+                interfaceToImplementationMappingCache,
                 logger);
             this.siloMessageCenter = messageCenter;
             this.messagingTrace = messagingTrace;
@@ -64,6 +73,7 @@ namespace Orleans.Runtime
             this.ClientId = CreateHostedClientGrainId(siloDetails.SiloAddress);
             this.Address = Gateway.GetClientActivationAddress(this.ClientId.GrainId, siloDetails.SiloAddress);
             this.GrainReference = referenceActivator.CreateReference(this.ClientId.GrainId, default);
+            _serviceProviderScope = runtimeClient.ServiceProvider.CreateScope();
         }
 
         public static ClientGrainId CreateHostedClientGrainId(SiloAddress siloAddress) => ClientGrainId.Create($"hosted-{siloAddress.ToParsableString()}");
@@ -75,21 +85,19 @@ namespace Orleans.Runtime
 
         public GrainId GrainId => this.ClientId.GrainId;
 
-        public object GrainInstance => null;
+        public object? GrainInstance => null;
 
         public ActivationId ActivationId => this.Address.ActivationId;
 
         public GrainAddress Address { get; }
 
-        public IServiceProvider ActivationServices => this.runtimeClient.ServiceProvider;
+        public IServiceProvider ActivationServices => _serviceProviderScope.ServiceProvider;
 
         public IGrainLifecycle ObservableLifecycle => throw new NotImplementedException();
 
         public IWorkItemScheduler Scheduler => throw new NotImplementedException();
 
         public bool IsExemptFromCollection => true;
-
-        public PlacementStrategy PlacementStrategy => null;
 
         /// <inheritdoc />
         public override string ToString() => $"{nameof(HostedClient)}_{this.Address}";
@@ -114,7 +122,7 @@ namespace Orleans.Runtime
         /// <inheritdoc />
         public void DeleteObjectReference(IAddressable obj)
         {
-            if (!(obj is GrainReference reference))
+            if (obj is not GrainReference reference)
             {
                 throw new ArgumentException("Argument reference is not a grain reference.");
             }
@@ -130,15 +138,46 @@ namespace Orleans.Runtime
             }
         }
 
-        public TComponent GetComponent<TComponent>() where TComponent : class
+        public TComponent? GetComponent<TComponent>() where TComponent : class
         {
             if (this is TComponent component) return component;
+            if (_components.TryGetValue(typeof(TComponent), out var result))
+            {
+                return (TComponent)result;
+            }
+            else if (typeof(TComponent) == typeof(PlacementStrategy))
+            {
+                return (TComponent)(object)ClientObserversPlacement.Instance;
+            }
+
+            lock (lockObj)
+            {
+                if (ActivationServices.GetService<TComponent>() is { } activatedComponent)
+                {
+                    return (TComponent)_components.GetOrAdd(typeof(TComponent), activatedComponent);
+                }
+            }
+
             return default;
         }
 
-        public void SetComponent<TComponent>(TComponent instance) where TComponent : class
+        public void SetComponent<TComponent>(TComponent? instance) where TComponent : class
         {
-            throw new NotSupportedException($"Cannot set components on shared client instance. Extension contract: {typeof(TComponent)}. Component: {instance} (Type: {instance?.GetType()})");
+            if (this is TComponent)
+            {
+                throw new ArgumentException("Cannot override a component which is implemented by the client context");
+            }
+
+            lock (lockObj)
+            {
+                if (instance == null)
+                {
+                    _components.Remove(typeof(TComponent), out _);
+                    return;
+                }
+
+                _components[typeof(TComponent)] = instance;
+            }
         }
 
         /// <inheritdoc />
@@ -180,6 +219,7 @@ namespace Orleans.Runtime
         {
             if (this.disposing) return;
             this.disposing = true;
+            _serviceProviderScope.Dispose();
             Utils.SafeExecute(() => this.siloMessageCenter.SetHostedClient(null));
             Utils.SafeExecute(() => this.incomingMessages.Writer.TryComplete());
             Utils.SafeExecute(() => this.messagePump?.GetAwaiter().GetResult());
@@ -200,10 +240,7 @@ namespace Orleans.Runtime
                     var more = await reader.WaitToReadAsync();
                     if (!more)
                     {
-                        if (this.logger.IsEnabled(LogLevel.Debug))
-                        {
-                            this.logger.LogDebug($"{nameof(Runtime.HostedClient)} completed processing all messages. Shutting down.");
-                        }
+                        LogDebugShuttingDown(this.logger);
                         break;
                     }
 
@@ -217,14 +254,14 @@ namespace Orleans.Runtime
                                 this.invokableObjects.Dispatch(message);
                                 break;
                             default:
-                                this.logger.LogError((int)ErrorCode.Runtime_Error_100327, "Message not supported: {Message}", message);
+                                LogErrorUnsupportedMessage(this.logger, message);
                                 break;
                         }
                     }
                 }
                 catch (Exception exception)
                 {
-                    this.logger.LogError((int)ErrorCode.Runtime_Error_100326, exception, "RunClientMessagePump has thrown an exception. Continuing.");
+                    LogErrorMessagePumpException(this.logger, exception);
                 }
             }
         }
@@ -251,12 +288,12 @@ namespace Orleans.Runtime
 
                 if (this.messagePump != null)
                 {
-                    await Task.WhenAny(cancellation.WhenCancelled(), this.messagePump);
+                    await messagePump.WaitAsync(cancellation).SuppressThrowing();
                 }
             }
         }
 
-        public bool Equals(IGrainContext other) => ReferenceEquals(this, other);
+        public bool Equals(IGrainContext? other) => ReferenceEquals(this, other);
 
         public (TExtension, TExtensionInterface) GetOrSetExtension<TExtension, TExtensionInterface>(Func<TExtension> newExtensionFunc)
             where TExtension : class, TExtensionInterface
@@ -302,7 +339,7 @@ namespace Orleans.Runtime
             return false;
         }
 
-        private bool TryGetExtension<TExtensionInterface>(out TExtensionInterface result)
+        private bool TryGetExtension<TExtensionInterface>([NotNullWhen(true)] out TExtensionInterface? result)
             where TExtensionInterface : IGrainExtension
         {
             if (_extensions.TryGetValue(typeof(TExtensionInterface), out var existing))
@@ -330,7 +367,7 @@ namespace Orleans.Runtime
                     return result;
                 }
 
-                var implementation = this.ActivationServices.GetServiceByKey<Type, IGrainExtension>(typeof(TExtensionInterface));
+                var implementation = this.ActivationServices.GetKeyedService<IGrainExtension>(typeof(TExtensionInterface));
                 if (implementation is null)
                 {
                     throw new GrainExtensionNotInstalledException($"No extension of type {typeof(TExtensionInterface)} is installed on this instance and no implementations are registered for automated install");
@@ -344,8 +381,36 @@ namespace Orleans.Runtime
         }
 
         public TTarget GetTarget<TTarget>() where TTarget : class => throw new NotImplementedException();
-        public void Activate(Dictionary<string, object> requestContext, CancellationToken? cancellationToken = null) { }
-        public void Deactivate(DeactivationReason deactivationReason, CancellationToken? cancellationToken = null) { }
+        public void Activate(Dictionary<string, object>? requestContext, CancellationToken cancellationToken) { }
+        public void Deactivate(DeactivationReason deactivationReason, CancellationToken cancellationToken) { }
         public Task Deactivated => Task.CompletedTask;
+
+        public void Rehydrate(IRehydrationContext context)
+        {
+            // Migration is not supported, but we need to dispose of the context if it's provided
+            (context as IDisposable)?.Dispose();
+        }
+
+        public void Migrate(Dictionary<string, object>? requestContext, CancellationToken cancellationToken)
+        {
+            // Migration is not supported. Do nothing: the contract is that this method attempts migration, but does not guarantee it will occur.
+        }
+
+        [LoggerMessage(
+            Level = LogLevel.Debug,
+            Message = $"{nameof(Runtime.HostedClient)} completed processing all messages. Shutting down.")]
+        private static partial void LogDebugShuttingDown(ILogger logger);
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.Runtime_Error_100327,
+            Level = LogLevel.Error,
+            Message = "Message not supported: {Message}")]
+        private static partial void LogErrorUnsupportedMessage(ILogger logger, Message message);
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.Runtime_Error_100326,
+            Level = LogLevel.Error,
+            Message = "RunClientMessagePump has thrown an exception. Continuing.")]
+        private static partial void LogErrorMessagePumpException(ILogger logger, Exception exception);
     }
 }

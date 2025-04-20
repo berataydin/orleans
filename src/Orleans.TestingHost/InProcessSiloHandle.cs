@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Orleans.Hosting;
 using Orleans.Runtime;
 
 namespace Orleans.TestingHost
@@ -17,7 +16,12 @@ namespace Orleans.TestingHost
         private bool isActive = true;
         
         /// <summary>Gets a reference to the silo host.</summary>
-        public IHost SiloHost { get; private set; }
+        public IHost SiloHost { get; init; }
+
+        /// <summary>
+        /// Gets the silo's service provider.
+        /// </summary>
+        public IServiceProvider ServiceProvider => SiloHost.Services;
 
         /// <inheritdoc />
         public override bool IsActive => isActive;
@@ -29,7 +33,7 @@ namespace Orleans.TestingHost
         /// <param name="configuration">The configuration.</param>
         /// <param name="postConfigureHostBuilder">An optional delegate which is invoked just prior to building the host builder.</param>
         /// <returns>The silo handle.</returns>
-        public static async Task<SiloHandle> CreateAsync(
+        public static async Task<InProcessSiloHandle> CreateAsync(
             string siloName,
             IConfiguration configuration,
             Action<IHostBuilder> postConfigureHostBuilder = null)
@@ -55,7 +59,7 @@ namespace Orleans.TestingHost
         /// <inheritdoc />
         public override async Task StopSiloAsync(bool stopGracefully)
         {
-            var cancellation = new CancellationTokenSource();
+            using var cancellation = new CancellationTokenSource();
             var ct = cancellation.Token;
 
             if (!stopGracefully)
@@ -121,7 +125,7 @@ namespace Orleans.TestingHost
             }
         }
 
-        private void WriteLog(object value)
+        private static void WriteLog(object value)
         {
             Console.WriteLine(value?.ToString());
         }

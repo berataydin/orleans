@@ -1,14 +1,11 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Concurrency;
 using Orleans.Configuration;
-using Orleans.Hosting;
+using Orleans.Internal;
+using Orleans.Metadata;
 using Orleans.Providers;
 using Orleans.Runtime;
 using Orleans.Streams;
@@ -28,7 +25,7 @@ namespace DefaultCluster.Tests.General
 
         public class Fixture : IAsyncLifetime
         {
-            private TestClusterPortAllocator portAllocator;
+            private readonly TestClusterPortAllocator portAllocator;
             public IHost Host { get; private set; }
 
             public Fixture()
@@ -39,8 +36,8 @@ namespace DefaultCluster.Tests.General
             public async Task InitializeAsync()
             {
                 var (siloPort, gatewayPort) = portAllocator.AllocateConsecutivePortPairs(1);
-                Host = new HostBuilder()
-                    .UseOrleans((ctx, siloBuilder) =>
+                Host = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder()
+                    .UseOrleans(siloBuilder =>
                     {
                         siloBuilder
                             .UseLocalhostClustering(siloPort, gatewayPort)
@@ -85,6 +82,49 @@ namespace DefaultCluster.Tests.General
             await grain.SetA(23);
             var val = await grain.GetA();
             Assert.Equal(23, val);
+        }
+
+        [Fact]
+        public async Task HostedClient_TimeoutTest()
+        {
+            var client = _host.Services.GetRequiredService<IClusterClient>();
+            var runtimeClient = _host.Services.GetRequiredService<IRuntimeClient>();
+            var typeResolver = _host.Services.GetRequiredService<GrainInterfaceTypeResolver>();
+
+            var stuckGrainType = typeResolver.GetGrainInterfaceType(typeof(IStuckGrain));
+            var initialTimeout = runtimeClient.GetResponseTimeout();
+
+            var timeout = TimeSpan.FromSeconds(1);
+            var maxTimeout = timeout.Multiply(3.5);
+
+            try
+            {
+                runtimeClient.SetResponseTimeout(timeout);
+                var stopwatch = Stopwatch.StartNew();
+
+                var assertionTask = Assert.ThrowsAsync<TimeoutException>(
+                        async () =>
+                        {
+                            var grain = client.GetGrain<IStuckGrain>(Guid.NewGuid());
+                            await grain.RunForever();
+                        })
+                    .WaitAsync(maxTimeout);
+
+                Assert.Equal(expected: 1, actual: runtimeClient.GetRunningRequestsCount(stuckGrainType));
+
+                await assertionTask;
+                stopwatch.Stop();
+
+                Assert.Equal(expected: 0, actual: runtimeClient.GetRunningRequestsCount(stuckGrainType));
+
+                Assert.True(stopwatch.Elapsed >= timeout, $"Waited less than {timeout}. Waited {stopwatch.Elapsed}");
+                Assert.True(stopwatch.Elapsed <= maxTimeout, $"Waited longer than {maxTimeout}. Waited {stopwatch.Elapsed}");
+                stopwatch.Stop();
+            }
+            finally
+            {
+                runtimeClient.SetResponseTimeout(initialTimeout);
+            }
         }
 
         [Fact]

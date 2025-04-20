@@ -4,8 +4,6 @@ using Amazon.Runtime;
 using Microsoft.Extensions.Logging.Abstractions;
 using Orleans.AWSUtils.Tests;
 using Orleans.Internal;
-using System;
-using System.Collections.Generic;
 using TestExtensions;
 
 namespace AWSUtils.Tests.StorageTests
@@ -38,7 +36,7 @@ namespace AWSUtils.Tests.StorageTests
                     new List<AttributeDefinition> {
                         new AttributeDefinition { AttributeName = "PartitionKey", AttributeType = ScalarAttributeType.S }
                     })
-                .WithTimeout(TimeSpan.FromSeconds(2)).Wait();
+                .WaitAsync(TimeSpan.FromSeconds(2)).Wait();
                 return true;
             }
             catch (Exception exc)

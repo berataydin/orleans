@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Orleans
@@ -309,7 +310,8 @@ namespace Orleans
         | AttributeTargets.Interface
         | AttributeTargets.Struct
         | AttributeTargets.Enum
-        | AttributeTargets.Method)]
+        | AttributeTargets.Method,
+        AllowMultiple = true)]
     public sealed class AliasAttribute : Attribute
     {
         /// <summary>
@@ -341,7 +343,8 @@ namespace Orleans
         AttributeTargets.Class
         | AttributeTargets.Interface
         | AttributeTargets.Struct
-        | AttributeTargets.Enum)]
+        | AttributeTargets.Enum,
+        AllowMultiple = true)]
     public sealed class CompoundTypeAliasAttribute : Attribute
     {
         /// <summary>
@@ -357,6 +360,44 @@ namespace Orleans
         /// Gets the alias components.
         /// </summary>
         public object[] Components { get; }
+    }
+
+    /// <summary>
+    /// When applied to a type, indicates that the type is a provider and that it should be automatically registered.
+    /// </summary>
+    /// <param name="name">The provider name, for example, <c>"AzureTableStorage"</c>.</param>
+    /// <param name="kind">The kind of provider, for example, <c>"Clustering"</c>, <c>"Reminders"</c>.</param>
+    /// <param name="target">The intended target of the provider, for example, <c>"Server"</c>, <c>"Client"</c>.</param>
+    /// <seealso cref="System.Attribute" />
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+    public sealed class RegisterProviderAttribute(
+        string name,
+        string kind,
+        string target,
+#if NET5_0_OR_GREATER
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)]
+#endif
+        Type type) : Attribute
+    {
+        /// <summary>
+        /// Gets the provider name, for example, <c>"AzureTableStorage"</c>.
+        /// </summary>
+        public string Name { get; } = name;
+
+        /// <summary>
+        /// Gets the kind of the provider, for example, <c>"Clustering"</c>, <c>"Reminders"</c>.
+        /// </summary>
+        public string Kind { get; } = kind;
+
+        /// <summary>
+        /// Gets the type used to configure the provider, for example, <c>"Server"</c>, <c>"Client"</c>.
+        /// </summary>
+        public string Target { get; } = target;
+
+        /// <summary>
+        /// Gets the type used to configure the provider.
+        /// </summary>
+        public Type Type { get; } = type;
     }
 
     /// <summary>
@@ -524,6 +565,24 @@ namespace Orleans
     }
 
     /// <summary>
+    /// Specifies the response timeout for the interface method which it is specified on.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Method)]
+    public sealed class ResponseTimeoutAttribute : Attribute
+    {
+        /// <summary>
+        /// Specifies the response timeout for the interface method which it is specified on.
+        /// </summary>
+        /// <param name="timeout">The response timeout, using <see cref="TimeSpan.Parse(string)"/> syntax.</param>
+        public ResponseTimeoutAttribute(string timeout) => Timeout = TimeSpan.Parse(timeout);
+
+        /// <summary>
+        /// Gets or sets the response timeout for this method.
+        /// </summary>
+        public TimeSpan? Timeout { get; init; }
+    }
+
+    /// <summary>
     /// Functionality for converting between two types.
     /// </summary>
     public interface IConverter<TValue, TSurrogate> where TSurrogate : struct
@@ -536,7 +595,7 @@ namespace Orleans
         TValue ConvertFromSurrogate(in TSurrogate surrogate);
 
         /// <summary>
-        /// Converts a value to the valuetype.
+        /// Converts a value to the value type.
         /// </summary>
         /// <param name="value">The value.</param>
         /// <returns>The surrogate.</returns>
@@ -554,5 +613,26 @@ namespace Orleans
         /// <param name="surrogate">The surrogate.</param>
         /// <param name="value">The value.</param>
         void Populate(in TSurrogate surrogate, TValue value);
+    }
+}
+
+namespace Orleans.Invocation
+{
+    /// <summary>
+    /// Applied to invokable base types (see TaskRequest) to indicate that instances of derived types should be returned directly from generated proxy methods rather than being passed to
+    /// the runtime for invocation. This is used to support calling patterns other than request-response, such as streaming.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class)]
+    public sealed class ReturnValueProxyAttribute : Attribute
+    {
+        public ReturnValueProxyAttribute(string initializerMethodName)
+        {
+            InitializerMethodName = initializerMethodName;
+        }
+
+        /// <summary>
+        /// The name of the method to 
+        /// </summary>
+        public string InitializerMethodName { get; }
     }
 }

@@ -1,15 +1,9 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.Memory;
-using Orleans;
 using Orleans.Configuration;
-using Orleans.Hosting;
 using Orleans.Runtime;
 using Orleans.TestingHost;
+using System.Runtime.InteropServices;
 using TestExtensions;
 using TestVersionGrainInterfaces;
 using TestVersionGrains;
@@ -35,7 +29,7 @@ namespace Tester.HeterogeneousSilosTests.UpgradeTests
         private const string VersionsProjectDirectory = "Grains";
         private const string GrainsV1ProjectName = "TestVersionGrains";
         private const string GrainsV2ProjectName = "TestVersionGrains2";
-        private const string VersionTestBinaryName = "TestVersionGrains.exe";
+        private static readonly string VersionTestBinaryName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "TestVersionGrains.exe" : "TestVersionGrains";
         private readonly FileInfo assemblyGrainsV1;
         private readonly FileInfo assemblyGrainsV2;
 
@@ -54,7 +48,7 @@ namespace Tester.HeterogeneousSilosTests.UpgradeTests
         {
             var testDirectory = new DirectoryInfo(GetType().Assembly.Location);
 
-            while (String.Compare(testDirectory.Name, CommonParentDirectory, StringComparison.OrdinalIgnoreCase) != 0 || testDirectory.Parent == null)
+            while (string.Compare(testDirectory.Name, CommonParentDirectory, StringComparison.OrdinalIgnoreCase) != 0 || testDirectory.Parent == null)
             {
                 testDirectory = testDirectory.Parent;
             }
@@ -68,7 +62,7 @@ namespace Tester.HeterogeneousSilosTests.UpgradeTests
             assemblyGrainsV2 = GetVersionTestDirectory(testDirectory, GrainsV2ProjectName);
         }
 
-        private FileInfo GetVersionTestDirectory(DirectoryInfo testDirectory, string directoryName)
+        private static FileInfo GetVersionTestDirectory(DirectoryInfo testDirectory, string directoryName)
         {
             var projectDirectory = Path.Combine(testDirectory.FullName, VersionsProjectDirectory, directoryName, BinDirectory);
 
@@ -294,7 +288,7 @@ namespace Tester.HeterogeneousSilosTests.UpgradeTests
         {
             public void Configure(IConfiguration configuration, IClientBuilder clientBuilder)
             {
-                clientBuilder.Configure<GatewayOptions>(options => options.PreferedGatewayIndex = 0);
+                clientBuilder.Configure<GatewayOptions>(options => options.PreferredGatewayIndex = 0);
             }
         }
     }

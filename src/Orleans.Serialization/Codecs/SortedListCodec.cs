@@ -1,5 +1,6 @@
 using Orleans.Serialization.Cloning;
 using Orleans.Serialization.Serializers;
+using System;
 using System.Collections.Generic;
 
 namespace Orleans.Serialization.Codecs
@@ -29,7 +30,7 @@ namespace Orleans.Serialization.Codecs
             }
             else
             {
-                var result = new SortedList<TKey, TValue>(surrogate.Comparer);
+                var result = new SortedList<TKey, TValue>(surrogate.Values.Count, surrogate.Comparer);
                 foreach (var kvp in surrogate.Values)
                 {
                     result.Add(kvp.Key, kvp.Value);
@@ -78,6 +79,7 @@ namespace Orleans.Serialization.Codecs
     [RegisterCopier]
     public sealed class SortedListCopier<TKey, TValue> : IDeepCopier<SortedList<TKey, TValue>>, IBaseCopier<SortedList<TKey, TValue>>
     {
+        private readonly Type _fieldType = typeof(SortedList<TKey, TValue>);
         private readonly IDeepCopier<TKey> _keyCopier;
         private readonly IDeepCopier<TValue> _valueCopier;
 
@@ -100,7 +102,7 @@ namespace Orleans.Serialization.Codecs
                 return result;
             }
 
-            if (input.GetType() != typeof(SortedList<TKey, TValue>))
+            if (input.GetType() as object != _fieldType as object)
             {
                 return context.DeepCopy(input);
             }

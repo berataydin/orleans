@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
 using System.Net;
-using System.Threading.Tasks;
-using Orleans;
 using Orleans.Runtime;
 
 namespace UnitTests.GrainInterfaces
@@ -33,8 +29,14 @@ namespace UnitTests.GrainInterfaces
     public interface IPreferLocalPlacementTestGrain : IPlacementTestGrain
     { }
 
-    public interface ILocalPlacementTestGrain : IPlacementTestGrain
-    { }
+    public interface IStatelessWorkerPlacementTestGrain : IPlacementTestGrain
+    {
+        ValueTask<int> GetWorkerLimit();
+    }
+    
+    public interface IOtherStatelessWorkerPlacementTestGrain : IStatelessWorkerPlacementTestGrain
+    {
+    }
 
     internal interface IDefaultPlacementTestGrain
     {

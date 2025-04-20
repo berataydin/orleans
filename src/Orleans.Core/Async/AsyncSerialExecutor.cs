@@ -110,7 +110,7 @@ namespace Orleans
     /// </summary>
     public class AsyncSerialExecutor
     {
-        private AsyncSerialExecutor<bool> executor = new AsyncSerialExecutor<bool>();
+        private readonly AsyncSerialExecutor<bool> executor = new AsyncSerialExecutor<bool>();
 
         /// <summary>
         /// Submits the next function for execution. It will execute after all previously submitted functions have finished, without interleaving their executions.
@@ -124,7 +124,7 @@ namespace Orleans
             return this.executor.AddNext(() => Wrap(func));
         }
 
-        private async Task<bool> Wrap(Func<Task> func)
+        private static async Task<bool> Wrap(Func<Task> func)
         {
             await func();
             return true;

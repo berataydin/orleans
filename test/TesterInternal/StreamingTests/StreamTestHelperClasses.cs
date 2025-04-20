@@ -1,10 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Orleans;
 using Orleans.Runtime;
 using Orleans.Streams;
 using UnitTests.GrainInterfaces;
@@ -91,7 +86,7 @@ namespace UnitTests.StreamingTests
         public static Streaming_ProducerClientObject NewObserver(ILogger logger, IClusterClient client)
         {
             if (null == logger)
-                throw new ArgumentNullException("logger");
+                throw new ArgumentNullException(nameof(logger));
             return new Streaming_ProducerClientObject(logger, client);
         }
 
@@ -120,7 +115,22 @@ namespace UnitTests.StreamingTests
         {
             return this.producer.ProducePeriodicSeries(timerCallback =>
                     {
-                        return new AsyncTaskSafeTimer(NullLogger.Instance, timerCallback, null, TimeSpan.Zero, TimeSpan.FromMilliseconds(10));
+                        var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(1));
+                        _ = Task.Run(async () =>
+                        {
+                            do
+                            {
+                                try
+                                {
+                                    await timerCallback(null);
+                                }
+                                catch
+                                {
+                                    // Ignore
+                                }
+                            } while (await timer.WaitForNextTickAsync());
+                        });
+                        return timer;
                     }, count);
         }
 
@@ -181,13 +191,13 @@ namespace UnitTests.StreamingTests
         private static async Task<ConsumerProxy> NewConsumerProxy(Guid streamId, string streamProvider, IStreaming_ConsumerGrain[] targets, ILogger logger, IInternalGrainFactory grainFactory)
         {
             if (targets == null)
-                throw new ArgumentNullException("targets");
+                throw new ArgumentNullException(nameof(targets));
             if (targets.Length == 0)
                 throw new ArgumentException("caller must specify at least one target");
-            if (String.IsNullOrWhiteSpace(streamProvider))
-                throw new ArgumentException("Stream provider name is either null or whitespace", "streamProvider");
+            if (string.IsNullOrWhiteSpace(streamProvider))
+                throw new ArgumentException("Stream provider name is either null or whitespace", nameof(streamProvider));
             if (logger == null)
-                throw new ArgumentNullException("logger");
+                throw new ArgumentNullException(nameof(logger));
 
             ConsumerProxy newObj = new ConsumerProxy(targets, logger, grainFactory);
             await newObj.BecomeConsumer(streamId, streamProvider);
@@ -198,7 +208,7 @@ namespace UnitTests.StreamingTests
         {
             grainCount = grainIds != null ? grainIds.Length : grainCount;
             if (grainCount < 1)
-                throw new ArgumentOutOfRangeException("grainCount", "The grain count must be at least one");
+                throw new ArgumentOutOfRangeException(nameof(grainCount), "The grain count must be at least one");
             logger.LogInformation("ConsumerProxy.NewConsumerGrainsAsync: multiplexing {GrainCount} consumer grains for stream {StreamId}.", grainCount, streamId);
             var grains = new IStreaming_ConsumerGrain[grainCount];
             var dedup = new Dictionary<Guid, IStreaming_ConsumerGrain>();
@@ -229,7 +239,7 @@ namespace UnitTests.StreamingTests
         {
             int grainCount = grainIds.Length;
             if (grainCount < 1)
-                throw new ArgumentOutOfRangeException("grainIds", "The grain count must be at least one");
+                throw new ArgumentOutOfRangeException(nameof(grainIds), "The grain count must be at least one");
             logger.LogInformation("ConsumerProxy.NewProducerConsumerGrainsAsync: multiplexing {GrainCount} consumer grains for stream {StreamId}.", grainCount, streamId);
             var grains = new IStreaming_ConsumerGrain[grainCount];
             var dedup = new Dictionary<int, IStreaming_ConsumerGrain>();
@@ -258,7 +268,7 @@ namespace UnitTests.StreamingTests
         public static Task<ConsumerProxy> NewConsumerClientObjectsAsync(Guid streamId, string streamProvider, ILogger logger, IInternalClusterClient client, int consumerCount = 1)
         {
             if (consumerCount < 1)
-                throw new ArgumentOutOfRangeException("consumerCount", "argument must be 1 or greater");
+                throw new ArgumentOutOfRangeException(nameof(consumerCount), "argument must be 1 or greater");
             logger.LogInformation("ConsumerProxy.NewConsumerClientObjectsAsync: multiplexing {ConsumerCount} consumer client objects for stream {StreamId}.", consumerCount, streamId);
             var objs = new IStreaming_ConsumerGrain[consumerCount];
             for (var i = 0; i < consumerCount; ++i)
@@ -269,7 +279,7 @@ namespace UnitTests.StreamingTests
         public static ConsumerProxy NewConsumerGrainAsync_WithoutBecomeConsumer(Guid consumerGrainId, ILogger logger, IInternalGrainFactory grainFactory, string grainClassName = "")
         {
             if (logger == null)
-                throw new ArgumentNullException("logger");
+                throw new ArgumentNullException(nameof(logger));
 
             if (string.IsNullOrEmpty(grainClassName)) 
             {
@@ -379,11 +389,11 @@ namespace UnitTests.StreamingTests
         private static async Task<ProducerProxy> NewProducerProxy(IStreaming_ProducerGrain[] targets, Guid streamId, string streamProvider, string streamNamespace, ILogger logger)
         {
             if (targets == null)
-                throw new ArgumentNullException("targets");
-            if (String.IsNullOrWhiteSpace(streamProvider))
-                throw new ArgumentException("Stream provider name is either null or whitespace", "streamProvider");
+                throw new ArgumentNullException(nameof(targets));
+            if (string.IsNullOrWhiteSpace(streamProvider))
+                throw new ArgumentException("Stream provider name is either null or whitespace", nameof(streamProvider));
             if (logger == null)
-                throw new ArgumentNullException("logger");
+                throw new ArgumentNullException(nameof(logger));
 
             ProducerProxy newObj = new ProducerProxy(targets, streamId, streamProvider, logger);
             await newObj.BecomeProducer(streamId, streamProvider, streamNamespace);
@@ -394,7 +404,7 @@ namespace UnitTests.StreamingTests
         {
             grainCount = grainIds != null ? grainIds.Length : grainCount;
             if (grainCount < 1)
-                throw new ArgumentOutOfRangeException("grainCount", "The grain count must be at least one");
+                throw new ArgumentOutOfRangeException(nameof(grainCount), "The grain count must be at least one");
             logger.LogInformation("ProducerProxy.NewProducerGrainsAsync: multiplexing {GrainCount} producer grains for stream {StreamId}.", grainCount, streamId);
             var grains = new IStreaming_ProducerGrain[grainCount];
             var dedup = new Dictionary<Guid, IStreaming_ProducerGrain>();
@@ -425,7 +435,7 @@ namespace UnitTests.StreamingTests
         {
             int grainCount = grainIds.Length;
             if (grainCount < 1)
-                throw new ArgumentOutOfRangeException("grainIds", "The grain count must be at least one");
+                throw new ArgumentOutOfRangeException(nameof(grainIds), "The grain count must be at least one");
             logger.LogInformation("ConsumerProxy.NewProducerConsumerGrainsAsync: multiplexing {GrainCount} producer grains for stream {StreamId}.", grainCount, streamId);
             var grains = new IStreaming_ProducerGrain[grainCount];
             var dedup = new Dictionary<int, IStreaming_ProducerGrain>();
@@ -454,7 +464,7 @@ namespace UnitTests.StreamingTests
         public static Task<ProducerProxy> NewProducerClientObjectsAsync(Guid streamId, string streamProvider,  string streamNamespace, ILogger logger, IClusterClient client, int producersCount = 1)
         {            
             if (producersCount < 1)
-                throw new ArgumentOutOfRangeException("producersCount", "The producer count must be at least one");
+                throw new ArgumentOutOfRangeException(nameof(producersCount), "The producer count must be at least one");
             var producers = new IStreaming_ProducerGrain[producersCount];
             for (var i = 0; i < producersCount; ++i)
                 producers[i] = Streaming_ProducerClientObject.NewObserver(logger, client);

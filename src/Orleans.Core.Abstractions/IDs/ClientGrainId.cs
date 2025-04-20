@@ -26,7 +26,11 @@ namespace Orleans.Runtime
         /// <summary>
         /// Creates a new <see cref="ClientGrainId"/> instance.
         /// </summary>
-        public static ClientGrainId Create(string id) => Create(IdSpan.Create(id));
+        public static ClientGrainId Create(string id)
+        {
+            ArgumentNullException.ThrowIfNullOrWhiteSpace(id);
+            return Create(IdSpan.Create(id));
+        }
 
         /// <summary>
         /// Creates a new <see cref="ClientGrainId"/> instance.
@@ -48,7 +52,7 @@ namespace Orleans.Runtime
             var key = grainId.Key.AsSpan();
             if (key.IndexOf((byte)ObserverGrainId.SegmentSeparator) is int index && index >= 0)
             {
-                key = key.Slice(0, index);
+                key = key[..index];
                 grainId = new GrainId(grainId.Type, new IdSpan(key.ToArray()));
             }
 

@@ -1,12 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Orleans;
-using Orleans.Hosting;
 using Orleans.Streaming.EventHubs;
 using Orleans.TestingHost;
 using Tester;
@@ -34,13 +27,19 @@ namespace ServiceBus.Tests.Streaming
                         {
                             options.StreamInactivityPeriod = StreamInactivityPeriod;
                         }));
+                        b.ConfigureCacheEviction(ob => ob.Configure(options =>
+                        {
+                            options.MetadataMinTimeInCache = MetadataMinTimeInCache;
+                            options.DataMaxAgeInCache = DataMaxAgeInCache;
+                            options.DataMinTimeInCache = DataMinTimeInCache;
+                        }));
                         b.ConfigureEventHub(ob => ob.Configure(options =>
                         {
-                            options.ConfigureEventHubConnection(TestDefaultConfiguration.EventHubConnectionString, EHPath, EHConsumerGroup);
+                            options.ConfigureTestDefaults(EHPath, EHConsumerGroup);
                         }));
                         b.UseAzureTableCheckpointer(ob => ob.Configure(options =>
                         {
-                            options.ConfigureTableServiceClient(TestDefaultConfiguration.DataConnectionString);
+                            options.ConfigureTestDefaults();
                             options.PersistInterval = TimeSpan.FromSeconds(10);
                         }));
                         b.UseDataAdapter((sp, n) => ActivatorUtilities.CreateInstance<EventHubDataAdapter>(sp));
@@ -57,7 +56,7 @@ namespace ServiceBus.Tests.Streaming
                     {
                         b.ConfigureEventHub(ob => ob.Configure(options =>
                         {
-                            options.ConfigureEventHubConnection(TestDefaultConfiguration.EventHubConnectionString, EHPath, EHConsumerGroup);
+                            options.ConfigureTestDefaults(EHPath, EHConsumerGroup);
                         }));
                     });
             }

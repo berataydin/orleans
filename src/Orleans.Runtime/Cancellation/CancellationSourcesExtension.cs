@@ -1,6 +1,5 @@
 using System;
 using System.Threading.Tasks;
-using Orleans.CodeGeneration;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Threading;
@@ -13,7 +12,7 @@ namespace Orleans.Runtime
     /// Contains list of cancellation token source corresponding to the tokens
     /// passed to the related grain activation.
     /// </summary>
-    internal class CancellationSourcesExtension : ICancellationSourcesExtension, IDisposable
+    internal partial class CancellationSourcesExtension : ICancellationSourcesExtension, IDisposable
     {
         private readonly ConcurrentDictionary<Guid, Entry> _cancellationTokens = new ConcurrentDictionary<Guid, Entry>();
         private readonly ILogger _logger;
@@ -40,7 +39,7 @@ namespace Orleans.Runtime
         {
             if (!_cancellationTokens.TryGetValue(tokenId, out var entry))
             {
-                _logger.LogWarning((int)ErrorCode.CancellationTokenCancelFailed, "Received a cancel call for token with id {TokenId}, but the token was not found", tokenId);
+                LogCancellationFailed(tokenId);
 
                 // Record the cancellation anyway, in case the call which would have registered the cancellation is still pending.
                 this.RecordCancellationToken(tokenId, isCancellationRequested: true);
@@ -133,5 +132,12 @@ namespace Orleans.Runtime
                 return untouchedTime >= expiry;
             }
         }
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.CancellationTokenCancelFailed,
+            Level = LogLevel.Warning,
+            Message = "Received a cancel call for token with id '{TokenId}', but the token was not found."
+        )]
+        private partial void LogCancellationFailed(Guid tokenId);
     }
 }

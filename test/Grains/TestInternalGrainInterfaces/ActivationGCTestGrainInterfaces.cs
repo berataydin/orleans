@@ -1,7 +1,3 @@
-﻿using System;
-using System.Threading.Tasks;
-using Orleans;
-
 namespace UnitTests.GrainInterfaces
 {
     public interface IIdleActivationGcTestGrain1 : IGrainWithGuidKey
@@ -19,7 +15,6 @@ namespace UnitTests.GrainInterfaces
         Task Nop();
         Task Delay(TimeSpan dt);
         Task<string> IdentifyActivation();
-        Task EnableBurstOnCollection(int count);
     }
 
     public interface IBusyActivationGcTestGrain2 : IGrainWithGuidKey

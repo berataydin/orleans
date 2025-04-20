@@ -1,13 +1,7 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Orleans.Configuration;
 using Orleans.Providers.Streams.AzureQueue;
 using Orleans.Providers.Streams.Common;
@@ -16,7 +10,6 @@ using Orleans.Streams;
 using TestExtensions;
 using Xunit;
 using Xunit.Abstractions;
-using Orleans.Internal;
 using Orleans.Serialization;
 
 namespace Tester.AzureUtils.Streaming
@@ -31,7 +24,7 @@ namespace Tester.AzureUtils.Streaming
         private const int NumMessagesPerBatch = 20;
         public static readonly string AZURE_QUEUE_STREAM_PROVIDER_NAME = "AQAdapterTests";
         private readonly ILoggerFactory loggerFactory;
-        private static List<string> azureQueueNames = AzureQueueUtilities.GenerateQueueNames($"AzureQueueAdapterTests-{Guid.NewGuid()}", 8);
+        private static readonly List<string> azureQueueNames = AzureQueueUtilities.GenerateQueueNames($"AzureQueueAdapterTests-{Guid.NewGuid()}", 8);
 
         public AzureQueueAdapterTests(ITestOutputHelper output, TestEnvironmentFixture fixture)
         {
@@ -44,10 +37,12 @@ namespace Tester.AzureUtils.Streaming
 
         public async Task DisposeAsync()
         {
-            if (!string.IsNullOrWhiteSpace(TestDefaultConfiguration.DataConnectionString))
+            try
             {
+                TestUtils.CheckForAzureStorage();
                 await AzureQueueStreamProviderUtils.DeleteAllUsedAzureQueues(this.loggerFactory, azureQueueNames, new AzureQueueOptions().ConfigureTestDefaults());
             }
+            catch (SkipException) { }
         }
 
         [SkippableFact, TestCategory("Functional"), TestCategory("Halo")]

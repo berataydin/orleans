@@ -1,10 +1,5 @@
-using System;
-using System.Collections.Generic;
 using System.CommandLine;
 using System.CommandLine.Invocation;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using DistributedTests.Common.MessageChannel;
 using Microsoft.Extensions.Logging;
 
@@ -18,7 +13,8 @@ namespace DistributedTests.Client.Commands
         {
             public string ServiceId { get; set; }
             public string ClusterId { get; set; }
-            public SecretConfiguration.SecretSource SecretSource { get; set; }
+            public Uri AzureTableUri { get; set; }
+            public Uri AzureQueueUri { get; set; }
             public int Wait { get; set; }
             public int ServersPerRound { get; set; }
             public int Rounds { get; set; }
@@ -32,7 +28,8 @@ namespace DistributedTests.Client.Commands
         {
             AddOption(OptionHelper.CreateOption<string>("--serviceId", isRequired: true));
             AddOption(OptionHelper.CreateOption<string>("--clusterId", isRequired: true));
-            AddOption(OptionHelper.CreateOption("--secretSource", defaultValue: SecretConfiguration.SecretSource.File));
+            AddOption(OptionHelper.CreateOption<Uri>("--azureTableUri", isRequired: true));
+            AddOption(OptionHelper.CreateOption<Uri>("--azureQueueUri", isRequired: true));
             AddOption(OptionHelper.CreateOption<int>("--wait", defaultValue: 30));
             AddOption(OptionHelper.CreateOption<int>("--serversPerRound", defaultValue: 1));
             AddOption(OptionHelper.CreateOption<int>("--rounds", defaultValue: 5));
@@ -46,8 +43,7 @@ namespace DistributedTests.Client.Commands
 
         private async Task RunAsync(Parameters parameters)
         {
-            var secrets = SecretConfiguration.Load(parameters.SecretSource);
-            var channel = await Channels.CreateSendChannel(parameters.ClusterId, secrets);
+            var channel = await Channels.CreateSendChannel(parameters.ClusterId, parameters.AzureQueueUri);
 
             _logger.LogInformation("Waiting {WaitSeconds} seconds before starting...", parameters.Wait);
             await Task.Delay(TimeSpan.FromSeconds(parameters.Wait));

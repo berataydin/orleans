@@ -5,7 +5,6 @@ using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -15,6 +14,7 @@ using Orleans.GrainReferences;
 using Orleans.Metadata;
 using Orleans.Runtime.Placement;
 using Orleans.Serialization.Invocation;
+using Orleans.Serialization.Session;
 
 namespace Orleans.Runtime
 {
@@ -120,7 +120,7 @@ namespace Orleans.Runtime
         /// <returns><see langword="true"/> if an appropriate activator was found, otherwise <see langword="false"/>.</returns>
         bool TryGet(GrainType grainType, [NotNullWhen(true)] out IGrainContextActivator activator);
     }
-   
+
     /// <summary>
     /// Creates a grain context for the given grain address.
     /// </summary>
@@ -169,16 +169,7 @@ namespace Orleans.Runtime
         private readonly ConcurrentDictionary<GrainType, GrainTypeSharedContext> _components = new();
         private readonly IConfigureGrainTypeComponents[] _configurators;
         private readonly GrainPropertiesResolver _grainPropertiesResolver;
-        private readonly GrainReferenceActivator _grainReferenceActivator;
         private readonly Func<GrainType, GrainTypeSharedContext> _createFunc;
-        private readonly IClusterManifestProvider _clusterManifestProvider;
-        private readonly GrainClassMap _grainClassMap;
-        private readonly IOptions<SiloMessagingOptions> _messagingOptions;
-        private readonly IOptions<GrainCollectionOptions> _collectionOptions;
-        private readonly IOptions<SchedulingOptions> _schedulingOptions;
-        private readonly PlacementStrategyResolver _placementStrategyResolver;
-        private readonly IGrainRuntime _grainRuntime;
-        private readonly ILogger<Grain> _logger;
         private readonly IServiceProvider _serviceProvider;
 
         /// <summary>
@@ -186,41 +177,14 @@ namespace Orleans.Runtime
         /// </summary>
         /// <param name="configurators">The grain type component configuration providers.</param>
         /// <param name="grainPropertiesResolver">The grain properties resolver.</param>
-        /// <param name="grainReferenceActivator">The grain reference activator.</param>
-        /// <param name="clusterManifestProvider">The cluster manifest provider.</param>
-        /// <param name="grainClassMap">The grain class map.</param>
-        /// <param name="placementStrategyResolver">The grain placement strategy resolver.</param>
-        /// <param name="messagingOptions">The messaging options.</param>
-        /// <param name="collectionOptions">The grain activation collection options</param>
-        /// <param name="schedulingOptions">The scheduling options</param>
-        /// <param name="grainRuntime">The grain runtime.</param>
-        /// <param name="logger">The logger.</param>
         /// <param name="serviceProvider">The service provider.</param>
         public GrainTypeSharedContextResolver(
             IEnumerable<IConfigureGrainTypeComponents> configurators,
             GrainPropertiesResolver grainPropertiesResolver,
-            GrainReferenceActivator grainReferenceActivator,
-            IClusterManifestProvider clusterManifestProvider,
-            GrainClassMap grainClassMap,
-            PlacementStrategyResolver placementStrategyResolver,
-            IOptions<SiloMessagingOptions> messagingOptions,
-            IOptions<GrainCollectionOptions> collectionOptions,
-            IOptions<SchedulingOptions> schedulingOptions,
-            IGrainRuntime grainRuntime,
-            ILogger<Grain> logger,
             IServiceProvider serviceProvider)
         {
             _configurators = configurators.ToArray();
             _grainPropertiesResolver = grainPropertiesResolver;
-            _grainReferenceActivator = grainReferenceActivator;
-            _clusterManifestProvider = clusterManifestProvider;
-            _grainClassMap = grainClassMap;
-            _placementStrategyResolver = placementStrategyResolver;
-            _messagingOptions = messagingOptions;
-            _collectionOptions = collectionOptions;
-            _schedulingOptions = schedulingOptions;
-            _grainRuntime = grainRuntime;
-            _logger = logger;
             _serviceProvider = serviceProvider;
             _createFunc = Create;
         }
@@ -234,18 +198,7 @@ namespace Orleans.Runtime
 
         private GrainTypeSharedContext Create(GrainType grainType)
         {
-            var result = new GrainTypeSharedContext(
-                grainType,
-                _clusterManifestProvider,
-                _grainClassMap,
-                _placementStrategyResolver,
-                _messagingOptions,
-                _collectionOptions,
-                _schedulingOptions,
-                _grainRuntime,
-                _logger,
-                _grainReferenceActivator,
-                _serviceProvider);
+            var result = ActivatorUtilities.CreateInstance<GrainTypeSharedContext>(_serviceProvider, grainType);
             var properties = _grainPropertiesResolver.GetGrainProperties(grainType);
             foreach (var configurator in _configurators)
             {
@@ -283,7 +236,7 @@ namespace Orleans.Runtime
                     shared.SetComponent<GrainCanInterleave>(component);
                 }
 
-                component.MayInterleavePredicates.Add(_ => true);
+                component.MayInterleavePredicates.Add(ReentrantPredicate.Instance);
             }
         }
     }
@@ -299,11 +252,11 @@ namespace Orleans.Runtime
 
         public bool TryGetConfigurator(GrainType grainType, GrainProperties properties, out IConfigureGrainContext configurator)
         {
-            if (properties.Properties.TryGetValue(WellKnownGrainTypeProperties.MayInterleavePredicate, out var value)
+            if (properties.Properties.TryGetValue(WellKnownGrainTypeProperties.MayInterleavePredicate, out _)
                 && _grainClassMap.TryGetGrainClass(grainType, out var grainClass))
             {
                 var predicate = GetMayInterleavePredicate(grainClass);
-                configurator = new MayInterleaveConfigurator(message => predicate(message.BodyObject as IInvokable));
+                configurator = new MayInterleaveConfigurator(predicate);
                 return true;
             }
 
@@ -315,7 +268,7 @@ namespace Orleans.Runtime
         /// Returns interleave predicate depending on whether class is marked with <see cref="MayInterleaveAttribute"/> or not.
         /// </summary>
         /// <param name="grainType">Grain class.</param>
-        private static Func<IInvokable, bool> GetMayInterleavePredicate(Type grainType)
+        private static IMayInterleavePredicate GetMayInterleavePredicate(Type grainType)
         {
             var attribute = grainType.GetCustomAttribute<MayInterleaveAttribute>();
             if (attribute is null)
@@ -323,12 +276,13 @@ namespace Orleans.Runtime
                 return null;
             }
 
+            // here
             var callbackMethodName = attribute.CallbackMethodName;
-            var method = grainType.GetMethod(callbackMethodName, BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+            var method = grainType.GetMethod(callbackMethodName, BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
             if (method == null)
             {
                 throw new InvalidOperationException(
-                    $"Class {grainType.FullName} doesn't declare public static method " +
+                    $"Class {grainType.FullName} doesn't declare public method " +
                     $"with name {callbackMethodName} specified in MayInterleave attribute");
             }
 
@@ -339,18 +293,64 @@ namespace Orleans.Runtime
                 throw new InvalidOperationException(
                     $"Wrong signature of callback method {callbackMethodName} " +
                     $"specified in MayInterleave attribute for grain class {grainType.FullName}. \n" +
-                    $"Expected: public static bool {callbackMethodName}(IInvokable req)");
+                    $"Expected: public bool {callbackMethodName}(IInvokable req)");
             }
 
-            return method.CreateDelegate<Func<IInvokable, bool>>();
+            if (method.IsStatic)
+            {
+                return new MayInterleaveStaticPredicate(method.CreateDelegate<Func<IInvokable, bool>>());
+            }
+
+            var predicateType = typeof(MayInterleaveInstancedPredicate<>).MakeGenericType(grainType);
+            return (IMayInterleavePredicate)Activator.CreateInstance(predicateType, method);
         }
+    }
+
+    internal interface IMayInterleavePredicate
+    {
+        bool Invoke(object instance, IInvokable bodyObject);
+    }
+
+    internal class ReentrantPredicate : IMayInterleavePredicate
+    {
+        private ReentrantPredicate()
+        {
+        }
+
+        public static ReentrantPredicate Instance { get; } = new();
+
+        public bool Invoke(object _, IInvokable bodyObject) => true;
+    }
+
+    internal class MayInterleaveStaticPredicate : IMayInterleavePredicate
+    {
+        private readonly Func<IInvokable, bool> _mayInterleavePredicate;
+
+        public MayInterleaveStaticPredicate(Func<IInvokable, bool> mayInterleavePredicate)
+        {
+            _mayInterleavePredicate = mayInterleavePredicate;
+        }
+
+        public bool Invoke(object _, IInvokable bodyObject) => _mayInterleavePredicate(bodyObject);
+    }
+
+    internal class MayInterleaveInstancedPredicate<T> : IMayInterleavePredicate where T : class
+    {
+        private readonly Func<T, IInvokable, bool> _mayInterleavePredicate;
+
+        public MayInterleaveInstancedPredicate(MethodInfo mayInterleavePredicateInfo)
+        {
+            _mayInterleavePredicate = mayInterleavePredicateInfo.CreateDelegate<Func<T, IInvokable, bool>>();
+        }
+
+        public bool Invoke(object instance, IInvokable bodyObject) => _mayInterleavePredicate(instance as T, bodyObject);
     }
 
     internal class MayInterleaveConfigurator : IConfigureGrainContext
     {
-        private readonly Func<Message, bool> _mayInterleavePredicate;
+        private readonly IMayInterleavePredicate _mayInterleavePredicate;
 
-        public MayInterleaveConfigurator(Func<Message, bool> mayInterleavePredicate)
+        public MayInterleaveConfigurator(IMayInterleavePredicate mayInterleavePredicate)
         {
             _mayInterleavePredicate = mayInterleavePredicate;
         }
@@ -370,73 +370,15 @@ namespace Orleans.Runtime
 
     internal class GrainCanInterleave
     {
-        public List<Func<Message, bool>> MayInterleavePredicates { get; } = new List<Func<Message, bool>>();
-        public bool MayInterleave(Message message)
+        public List<IMayInterleavePredicate> MayInterleavePredicates { get; } = new List<IMayInterleavePredicate>();
+        public bool MayInterleave(object instance, Message message)
         {
             foreach (var predicate in this.MayInterleavePredicates)
             {
-                if (predicate(message)) return true;
+                if (predicate.Invoke(instance, message.BodyObject as IInvokable)) return true;
             }
 
             return false;
-        }
-    }
-
-    internal class ConfigureDefaultGrainActivator : IConfigureGrainTypeComponents
-    {
-        private readonly GrainClassMap _grainClassMap;
-        private readonly ConstructorArgumentFactory _constructorArgumentFactory;
-
-        public ConfigureDefaultGrainActivator(GrainClassMap grainClassMap, IServiceProvider serviceProvider)
-        {
-            _constructorArgumentFactory = new ConstructorArgumentFactory(serviceProvider);
-            _grainClassMap = grainClassMap;
-        }
-
-        public void Configure(GrainType grainType, GrainProperties properties, GrainTypeSharedContext shared)
-        {
-            if (shared.GetComponent<IGrainActivator>() is object) return;
-
-            if (!_grainClassMap.TryGetGrainClass(grainType, out var grainClass))
-            {
-                return;
-            }
-
-            var argumentFactory = _constructorArgumentFactory.CreateFactory(grainClass);
-            var createGrainInstance = ActivatorUtilities.CreateFactory(grainClass, argumentFactory.ArgumentTypes);
-            var instanceActivator = new DefaultGrainActivator(createGrainInstance, argumentFactory);
-            shared.SetComponent<IGrainActivator>(instanceActivator);
-        }
-
-        internal class DefaultGrainActivator : IGrainActivator
-        {
-            private readonly ObjectFactory _factory;
-            private readonly ConstructorArgumentFactory.ArgumentFactory _argumentFactory;
-
-            public DefaultGrainActivator(ObjectFactory factory, ConstructorArgumentFactory.ArgumentFactory argumentFactory)
-            {
-                _factory = factory;
-                _argumentFactory = argumentFactory;
-            }
-
-            public object CreateInstance(IGrainContext context)
-            {
-                var args = _argumentFactory.CreateArguments(context);
-                return _factory(context.ActivationServices, args);
-            }
-
-            public async ValueTask DisposeInstance(IGrainContext context, object instance)
-            {
-                switch (instance)
-                {
-                    case IAsyncDisposable asyncDisposable:
-                        await asyncDisposable.DisposeAsync();
-                        break;
-                    case IDisposable disposable:
-                        disposable.Dispose();
-                        break;
-                }
-            }
         }
     }
 }

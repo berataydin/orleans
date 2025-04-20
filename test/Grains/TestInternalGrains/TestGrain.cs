@@ -1,11 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Runtime;
 using Orleans.Runtime.GrainDirectory;
 using UnitTests.GrainInterfaces;
@@ -16,7 +10,7 @@ namespace UnitTests.Grains
     {
         private readonly string _id = Guid.NewGuid().ToString();
         private string label;
-        private ILogger logger;
+        private readonly ILogger logger;
         private IDisposable timer;
 
         public TestGrain(ILoggerFactory loggerFactory)
@@ -67,12 +61,13 @@ namespace UnitTests.Grains
         public Task StartTimer()
         {
             logger.LogInformation("StartTimer.");
-            timer = base.RegisterTimer(TimerTick, null, TimeSpan.Zero, TimeSpan.FromSeconds(10));
+            timer = this.RegisterGrainTimer(TimerTick, dueTime: TimeSpan.Zero, period: TimeSpan.FromSeconds(10));
 
             return Task.CompletedTask;
         }
+        private Task Ticker(object obj) => Task.CompletedTask;
 
-        private Task TimerTick(object data)
+        private Task TimerTick(CancellationToken cancellationToken)
         {
             logger.LogInformation("TimerTick.");
             return Task.CompletedTask;
@@ -158,12 +153,13 @@ namespace UnitTests.Grains
         }
     }
 
+    [GrainType("guid-test-grain")]
     internal class GuidTestGrain : Grain, IGuidTestGrain
     {
         private readonly string _id = Guid.NewGuid().ToString();
 
         private string label;
-        private ILogger logger;
+        private readonly ILogger logger;
 
         public GuidTestGrain(ILoggerFactory loggerFactory)
         {
@@ -206,6 +202,8 @@ namespace UnitTests.Grains
         {
             return Task.FromResult(_id);
         }
+
+        public Task<SiloAddress> GetSiloAddress() => Task.FromResult(ServiceProvider.GetRequiredService<ILocalSiloDetails>().SiloAddress);
     }
 
     internal class OneWayGrain : Grain, IOneWayGrain, ISimpleGrainObserver
@@ -214,7 +212,7 @@ namespace UnitTests.Grains
         private int count;
         private TaskCompletionSource<string> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private IOneWayGrain other;
-        private GrainLocator grainLocator;
+        private readonly GrainLocator grainLocator;
         private int _numSignals;
 
         public OneWayGrain(GrainLocator grainLocator) => this.grainLocator = grainLocator;

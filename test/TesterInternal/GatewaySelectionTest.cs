@@ -1,9 +1,5 @@
 //#define USE_SQL_SERVER
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Orleans.Configuration;
@@ -12,7 +8,6 @@ using Orleans.Runtime;
 using Orleans.Internal;
 using Xunit;
 using Xunit.Abstractions;
-using System.Threading;
 
 namespace UnitTests.MessageCenterTests
 {
@@ -42,7 +37,7 @@ namespace UnitTests.MessageCenterTests
 
         protected async Task Test_GatewaySelection(IGatewayListProvider listProvider)
         {
-            IList<Uri> gatewayUris = listProvider.GetGateways().GetResult();
+            IList<Uri> gatewayUris = await listProvider.GetGateways();
             Assert.True(gatewayUris.Count > 0, $"Found some gateways. Data = {Utils.EnumerableToString(gatewayUris)}");
 
             var gatewayEndpoints = gatewayUris.Select(uri =>
@@ -50,7 +45,7 @@ namespace UnitTests.MessageCenterTests
                 return new IPEndPoint(IPAddress.Parse(uri.Host), uri.Port);
             }).ToList();
 
-            var gatewayManager = new GatewayManager(Options.Create(new GatewayOptions()), listProvider, NullLoggerFactory.Instance, null);
+            var gatewayManager = new GatewayManager(Options.Create(new GatewayOptions()), listProvider, NullLoggerFactory.Instance, null, TimeProvider.System);
             await gatewayManager.StartAsync(CancellationToken.None);
 
             var counts = new int[4];
@@ -58,6 +53,7 @@ namespace UnitTests.MessageCenterTests
             for (int i = 0; i < 2300; i++)
             {
                 var ip = gatewayManager.GetLiveGateway();
+                Assert.NotNull(ip);
                 var addr = ip.Endpoint.Address;
                 Assert.Equal(IPAddress.Loopback, addr);  // "Incorrect IP address returned for gateway"
                 Assert.True((0 < ip.Endpoint.Port) && (ip.Endpoint.Port < 5), "Incorrect IP port returned for gateway");

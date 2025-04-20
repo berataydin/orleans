@@ -1,7 +1,10 @@
+using Microsoft.Extensions.Options;
 using Orleans.Runtime;
 using StackExchange.Redis;
 using System;
+using System.Text;
 using System.Threading.Tasks;
+using Orleans.Configuration;
 
 namespace Orleans.Clustering.Redis
 {
@@ -22,6 +25,11 @@ namespace Orleans.Clustering.Redis
         public Func<RedisClusteringOptions, Task<IConnectionMultiplexer>> CreateMultiplexer { get; set; } = DefaultCreateMultiplexer;
 
         /// <summary>
+        /// The delegate used to create redis key for RedisMembershipTable.
+        /// </summary>
+        public Func<ClusterOptions, RedisKey> CreateRedisKey { get; set; } = DefaultCreateRedisKey;
+
+        /// <summary>
         /// Entry expiry, null by default. A value should be set ONLY for ephemeral environments (like in tests).
         /// Setting a value different from null will cause entries to be deleted after some period of time.
         /// </summary>
@@ -33,6 +41,15 @@ namespace Orleans.Clustering.Redis
         public static async Task<IConnectionMultiplexer> DefaultCreateMultiplexer(RedisClusteringOptions options)
         {
             return await ConnectionMultiplexer.ConnectAsync(options.ConfigurationOptions);
+        }
+
+        /// <summary>
+        /// The default multiplexer creation redis key for RedisMembershipTable.
+        /// </summary>
+        /// <returns></returns>
+        public static RedisKey DefaultCreateRedisKey(ClusterOptions clusterOptions)
+        {
+            return Encoding.UTF8.GetBytes($"{clusterOptions.ServiceId}/members/{clusterOptions.ClusterId}");
         }
     }
 
@@ -48,9 +65,9 @@ namespace Orleans.Clustering.Redis
     {
         private readonly RedisClusteringOptions _options;
 
-        public RedisClusteringOptionsValidator(RedisClusteringOptions options)
+        public RedisClusteringOptionsValidator(IOptions<RedisClusteringOptions> options)
         {
-            _options = options;
+            _options = options.Value;
         }
 
         /// <inheritdoc/>

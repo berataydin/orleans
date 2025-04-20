@@ -11,6 +11,8 @@ namespace Orleans.Clustering.AdoNet.Storage
 namespace Orleans.Persistence.AdoNet.Storage
 #elif REMINDERS_ADONET
 namespace Orleans.Reminders.AdoNet.Storage
+#elif STREAMING_ADONET
+namespace Orleans.Streaming.AdoNet.Storage
 #elif TESTER_SQLUTILS
 namespace Orleans.Tests.SqlUtils
 #else
@@ -37,7 +39,7 @@ namespace Orleans.Tests.SqlUtils
 
         private static CachedFactory GetFactory(string invariantName)
         {
-            if (String.IsNullOrWhiteSpace(invariantName))
+            if (string.IsNullOrWhiteSpace(invariantName))
             {
                 throw new ArgumentNullException(nameof(invariantName));
             }
@@ -99,12 +101,12 @@ namespace Orleans.Tests.SqlUtils
 
         public static DbConnection CreateConnection(string invariantName, string connectionString)
         {
-            if (String.IsNullOrWhiteSpace(invariantName))
+            if (string.IsNullOrWhiteSpace(invariantName))
             {
                 throw new ArgumentNullException(nameof(invariantName));
             }
 
-            if (String.IsNullOrWhiteSpace(connectionString))
+            if (string.IsNullOrWhiteSpace(connectionString))
             {
                 throw new ArgumentNullException(nameof(connectionString));
             }

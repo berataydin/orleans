@@ -16,7 +16,7 @@ namespace Orleans.Runtime.GrainDirectory
         /// <summary>
         /// Stops the local portion of the directory service.
         /// </summary>
-        void Stop();
+        Task StopAsync();
 
         RemoteGrainDirectory RemoteGrainDirectory { get; }
         RemoteGrainDirectory CacheValidator { get; }
@@ -61,10 +61,10 @@ namespace Orleans.Runtime.GrainDirectory
         void InvalidateCacheEntry(GrainId grainId);
 
         /// <summary>
-        /// Adds a cache entry for the given activation addrss.
+        /// Adds or updates a cache entry for the given activation address.
         /// This method is intended to be called whenever a placement decision is made.
         /// </summary>
-        void CachePlacementDecision(GrainId grainId, SiloAddress siloAddress);
+        void AddOrUpdateCacheEntry(GrainId grainId, SiloAddress siloAddress);
 
         /// <summary>
         /// For testing purposes only.
@@ -103,11 +103,5 @@ namespace Orleans.Runtime.GrainDirectory
         /// <param name="silo">the address of the silo</param>
         /// <returns>true if the silo is known to be part of this cluster</returns>
         bool IsSiloInCluster(SiloAddress silo);
-
-        /// <summary>
-        /// Sets the callback to <see cref="Catalog"/> which is called when a silo is removed from membership.
-        /// </summary>
-        /// <param name="catalogOnSiloRemoved">The callback.</param>
-        void SetSiloRemovedCatalogCallback(Action<SiloAddress, SiloStatus> catalogOnSiloRemoved);
     }
 }

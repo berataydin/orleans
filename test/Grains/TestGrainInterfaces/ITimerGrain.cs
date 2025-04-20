@@ -1,7 +1,3 @@
-﻿using System;
-using System.Threading.Tasks;
-using Orleans;
-
 namespace UnitTests.GrainInterfaces
 {
     public interface ITimerGrain : IGrainWithIntegerKey
@@ -16,13 +12,25 @@ namespace UnitTests.GrainInterfaces
         Task Deactivate();
     }
 
+    public interface IPocoTimerGrain : ITimerGrain
+    {
+    }
+
     public interface ITimerCallGrain : IGrainWithIntegerKey
     {
         Task<int> GetTickCount();
         Task<Exception> GetException();
 
-        Task StartTimer(string name, TimeSpan delay);
+        Task StartTimer(string name, TimeSpan dueTime);
+        Task StartTimer(string name, TimeSpan dueTime, string operationType);
+        Task RestartTimer(string name, TimeSpan dueTime);
+        Task RestartTimer(string name, TimeSpan dueTime, TimeSpan period);
         Task StopTimer(string name);
+        Task RunSelfDisposingTimer();
+    }
+
+    public interface IPocoTimerCallGrain : ITimerCallGrain
+    {
     }
 
     public interface ITimerRequestGrain : IGrainWithIntegerKey
@@ -32,5 +40,26 @@ namespace UnitTests.GrainInterfaces
         Task StartStuckTimer(TimeSpan dueTime);
 
         Task<string> GetRuntimeInstanceId();
+        Task<int> TestAllTimerOverloads();
+        Task<int> PollCompletedTimers();
+        Task TestCompletedTimerResults();
+    }
+
+    public interface IPocoTimerRequestGrain : ITimerRequestGrain
+    {
+    }
+
+    public interface INonReentrantTimerCallGrain : IGrainWithIntegerKey
+    {
+        Task<int> GetTickCount();
+        Task<Exception> GetException();
+
+        Task StartTimer(string name, TimeSpan delay, bool keepAlive = true);
+        Task StopTimer(string name);
+        Task ExternalTick(string name);
+    }
+
+    public interface IPocoNonReentrantTimerCallGrain : INonReentrantTimerCallGrain
+    {
     }
 }

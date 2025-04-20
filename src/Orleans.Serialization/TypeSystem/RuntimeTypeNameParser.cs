@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 
 namespace Orleans.Serialization.TypeSystem;
 
@@ -108,7 +109,7 @@ public static class RuntimeTypeNameParser
                 }
             }
 
-            coreType = new TupleTypeSpec(elements.ToArray(), input.TotalGenericArity);
+            coreType = new TupleTypeSpec([.. elements], input.TotalGenericArity);
         }
         else
         {
@@ -134,10 +135,9 @@ public static class RuntimeTypeNameParser
         }
 
         // Parse generic type parameters
-        if (input.TotalGenericArity > 0 && input.TryPeek(out c) && c == ArrayStartIndicator)
+        if (input.TotalGenericArity > 0 && input.TryPeek(out c, out var d) && c == ArrayStartIndicator && d == ArrayStartIndicator)
         {
             input.ConsumeCharacter(ArrayStartIndicator);
-
             var arguments = new TypeSpec[input.TotalGenericArity];
             for (var i = 0; i < input.TotalGenericArity; i++)
             {
@@ -329,11 +329,30 @@ public static class RuntimeTypeNameParser
 
         public readonly ReadOnlySpan<char> Remaining => Input[Index..];
 
-        public bool TryPeek(out char c)
+        public readonly bool TryPeek(out char c)
         {
             if (Index < Input.Length)
             {
                 c = Input[Index];
+                return true;
+            }
+
+            c = default;
+            return false;
+        }
+
+        public readonly bool TryPeek(out char c, out char d)
+        {
+            var result = TryPeek(out c);
+            result &= TryPeek(Index + 1, out d);
+            return result;
+        }
+
+        public readonly bool TryPeek(int index, out char c)
+        {
+            if (index < Input.Length)
+            {
+                c = Input[index];
                 return true;
             }
 
@@ -359,7 +378,7 @@ public static class RuntimeTypeNameParser
                 var c = Input[Index];
                 if (assertChar != c)
                 {
-                    ThrowUnexpectedCharacter(assertChar, c);
+                    ThrowUnexpectedCharacter(Input, Index, assertChar, c);
                 }
 
                 ++Index;
@@ -377,8 +396,38 @@ public static class RuntimeTypeNameParser
             }
         }
 
-        private static void ThrowUnexpectedCharacter(char expected, char actual) => throw new InvalidOperationException($"Encountered unexpected character. Expected '{expected}', actual '{actual}'.");
+        private static void ThrowUnexpectedCharacter(ReadOnlySpan<char> value, int position, char expected, char actual)
+        {
+            var valueString = new string(value);
+            var posString = position > 0 ? new string(' ', position) : "";
+            var message = $"Encountered unexpected character. Expected '{expected}', actual '{actual}' in string:\n> {valueString}\n> {posString}^";
+            throw new InvalidOperationException(message);
+        }
 
         private static void ThrowEndOfInput() => throw new InvalidOperationException("Tried to read past the end of the input");
+
+        public override readonly string ToString()
+        {
+            var result = new StringBuilder();
+            var i = 0;
+            foreach (var c in Input)
+            {
+                if (i == Index)
+                {
+                    result.Append("^^^");
+                }
+
+                result.Append(c);
+
+                if (i == Index)
+                {
+                    result.Append("^^^");
+                }
+
+                ++i;
+            }
+
+            return result.ToString();
+        }
     }
 }

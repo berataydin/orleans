@@ -1,7 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Orleans.Runtime;
@@ -24,7 +22,7 @@ namespace UnitTests.StreamingTests
         {
             if (string.IsNullOrWhiteSpace(streamProviderName))
             {
-                throw new ArgumentNullException("streamProviderName");
+                throw new ArgumentNullException(nameof(streamProviderName));
             }
             this.streamProviderName = streamProviderName;
             this.logger = testCluster.Client.ServiceProvider.GetRequiredService<ILogger<SubscriptionMultiplicityTestRunner>>();
@@ -44,9 +42,7 @@ namespace UnitTests.StreamingTests
             // produce some messages
             await producer.BecomeProducer(streamGuid, streamNamespace, streamProviderName);
 
-            await producer.StartPeriodicProducing();
-            await Task.Delay(TimeSpan.FromMilliseconds(1000));
-            await producer.StopPeriodicProducing();
+            await RunFor(() => producer.Produce(), TimeSpan.FromSeconds(1));
 
             // check
             await TestingUtils.WaitUntilAsync(lastTry => CheckCounters(producer, consumer, 2, lastTry), Timeout);
@@ -259,7 +255,7 @@ namespace UnitTests.StreamingTests
             actualSubscriptions = await consumer.GetAllSubscriptions(streamGuid, streamNamespace, streamProviderName);
 
             // validate
-            Assert.Equal(0, actualSubscriptions.Count);
+            Assert.Empty(actualSubscriptions);
         }
 
         public async Task TwoIntermitentStreamTest(Guid streamGuid)
@@ -312,7 +308,7 @@ namespace UnitTests.StreamingTests
             var producer = this.testCluster.GrainFactory.GetGrain<ISampleStreaming_ProducerGrain>(Guid.NewGuid());
             int eventCount = 0;
 
-            var provider = this.testCluster.Client.ServiceProvider.GetServiceByName<IStreamProvider>(streamProviderName);
+            var provider = this.testCluster.Client.ServiceProvider.GetKeyedService<IStreamProvider>(streamProviderName);
             var stream = provider.GetStream<int>(streamNamespace, streamGuid);
             var handle = await stream.SubscribeAsync((e,t) =>
             {
@@ -416,6 +412,16 @@ namespace UnitTests.StreamingTests
                 numProduced,
                 numConsumed);
             return true;
+        }
+
+        private async Task RunFor(Func<Task> func, TimeSpan duration)
+        {
+            var sw = Stopwatch.StartNew();
+            do
+            {
+                await func();
+            }
+            while (sw.Elapsed < duration);
         }
     }
 }

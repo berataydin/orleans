@@ -1,11 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Orleans;
 using Xunit;
 
 namespace Tester
@@ -132,7 +125,7 @@ namespace Tester
             Assert.True(multiStageObserver.Stopped.Values.All(o => o));
         }
 
-        private async Task<Dictionary<TestStages,List<Observer>>> RunLifecycle(Dictionary<TestStages,int> observerCountByStage, TestStages? failOnStart, TestStages? failOnStop)
+        private static async Task<Dictionary<TestStages,List<Observer>>> RunLifecycle(Dictionary<TestStages,int> observerCountByStage, TestStages? failOnStart, TestStages? failOnStop)
         {
             // setup lifecycle observers
             var observersByStage = new Dictionary<TestStages, List<Observer>>();

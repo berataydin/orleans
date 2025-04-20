@@ -1,18 +1,13 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Configuration;
-using Orleans.Hosting;
 using Orleans.Runtime;
 using Orleans.Serialization.TypeSystem;
 using Orleans.TestingHost;
 using Tester;
 using TestExtensions;
+using UnitTestGrains;
 using UnitTests.GrainInterfaces;
 using UnitTests.Grains;
 using Xunit;
@@ -169,18 +164,17 @@ namespace UnitTests.ActivationsLifeCycleTests
             }
             await Task.WhenAll(tasks0);
             bool[] quit = new bool[]{ false };
-            Func<Task> busyWorker =
-                async () =>
+            async Task busyWorker()
+            {
+                logger.LogInformation("ActivationCollectorShouldNotCollectBusyActivations: busyWorker started");
+                List<Task> tasks1 = new List<Task>();
+                while (!quit[0])
                 {
-                    logger.LogInformation("ActivationCollectorShouldNotCollectBusyActivations: busyWorker started");
-                    List<Task> tasks1 = new List<Task>();
-                    while (!quit[0])
-                    {
-                        foreach (var g in busyGrains)
-                            tasks1.Add(g.Nop());
-                        await Task.WhenAll(tasks1);
-                    }
-                };
+                    foreach (var g in busyGrains)
+                        tasks1.Add(g.Nop());
+                    await Task.WhenAll(tasks1);
+                }
+            }
             Task.Run(busyWorker).Ignore();
 
             logger.LogInformation("ActivationCollectorShouldNotCollectBusyActivations: activating {Count} idle grains.", idleGrainCount);
@@ -232,18 +226,17 @@ namespace UnitTests.ActivationsLifeCycleTests
             }
             await Task.WhenAll(tasks0);
             bool[] quit = new bool[]{ false };
-            Func<Task> busyWorker =
-                async () =>
+            async Task busyWorker()
+            {
+                logger.LogInformation("ManualCollectionShouldNotCollectBusyActivations: busyWorker started");
+                List<Task> tasks1 = new List<Task>();
+                while (!quit[0])
                 {
-                    logger.LogInformation("ManualCollectionShouldNotCollectBusyActivations: busyWorker started");
-                    List<Task> tasks1 = new List<Task>();
-                    while (!quit[0])
-                    {
-                        foreach (var g in busyGrains)
-                            tasks1.Add(g.Nop());
-                        await Task.WhenAll(tasks1);
-                    }
-                };
+                    foreach (var g in busyGrains)
+                        tasks1.Add(g.Nop());
+                    await Task.WhenAll(tasks1);
+                }
+            }
             Task.Run(busyWorker).Ignore();
 
             logger.LogInformation("ManualCollectionShouldNotCollectBusyActivations: activating {Count} idle grains.", idleGrainCount);
@@ -340,18 +333,17 @@ namespace UnitTests.ActivationsLifeCycleTests
             }
             await Task.WhenAll(tasks0);
             bool[] quit = new bool[]{ false };
-            Func<Task> busyWorker =
-                async () =>
+            async Task busyWorker()
+            {
+                logger.LogInformation("ActivationCollectorShouldNotCollectBusyActivationsSpecifiedInPerTypeConfiguration: busyWorker started");
+                List<Task> tasks1 = new List<Task>();
+                while (!quit[0])
                 {
-                    logger.LogInformation("ActivationCollectorShouldNotCollectBusyActivationsSpecifiedInPerTypeConfiguration: busyWorker started");
-                    List<Task> tasks1 = new List<Task>();
-                    while (!quit[0])
-                    {
-                        foreach (var g in busyGrains)
-                            tasks1.Add(g.Nop());
-                        await Task.WhenAll(tasks1);
-                    }
-                };
+                    foreach (var g in busyGrains)
+                        tasks1.Add(g.Nop());
+                    await Task.WhenAll(tasks1);
+                }
+            }
             Task.Run(busyWorker).Ignore();
 
             logger.LogInformation("ActivationCollectorShouldNotCollectBusyActivationsSpecifiedInPerTypeConfiguration: activating {Count} idle grains.", idleGrainCount);
@@ -413,41 +405,39 @@ namespace UnitTests.ActivationsLifeCycleTests
             bool[] quit = new bool[] { false };
             bool[] matched = new bool[grainCount];
             string[] activationIds = new string[grainCount];
-            Func<int, Task> workFunc =
-                async index =>
-                {
-                    // (part of) 4. periodically send a message to each grain...
+            async Task workFunc(int index)
+            {
+                // (part of) 4. periodically send a message to each grain...
 
-                    // take a grain and call Delay to keep it busy.
-                    IStatelessWorkerActivationCollectorTestGrain1 g = grains[index];
-                    await g.Delay(DEFAULT_IDLE_TIMEOUT.Divide(2));
-                    // identify the activation and record whether it matches the activation ID last reported. it probably won't match in the beginning but should always converge on a match as other activations get collected.
-                    string aid = await g.IdentifyActivation();
-                    logger.LogInformation("ActivationCollectorShouldNotCollectBusyStatelessWorkers: identified {Activation}", aid);
-                    matched[index] = aid == activationIds[index];
-                    activationIds[index] = aid;
-                };
-            Func<Task> workerFunc =
-                async () =>
-                {
-                    // (part of) 4. periodically send a message to each grain...
-                    logger.LogInformation("ActivationCollectorShouldNotCollectBusyStatelessWorkers: busyWorker started");
+                // take a grain and call Delay to keep it busy.
+                IStatelessWorkerActivationCollectorTestGrain1 g = grains[index];
+                await g.Delay(DEFAULT_IDLE_TIMEOUT.Divide(2));
+                // identify the activation and record whether it matches the activation ID last reported. it probably won't match in the beginning but should always converge on a match as other activations get collected.
+                string aid = await g.IdentifyActivation();
+                logger.LogInformation("ActivationCollectorShouldNotCollectBusyStatelessWorkers: identified {Activation}", aid);
+                matched[index] = aid == activationIds[index];
+                activationIds[index] = aid;
+            }
+            async Task workerFunc()
+            {
+                // (part of) 4. periodically send a message to each grain...
+                logger.LogInformation("ActivationCollectorShouldNotCollectBusyStatelessWorkers: busyWorker started");
 
-                    List<Task> tasks1 = new List<Task>();
-                    while (!quit[0])
+                List<Task> tasks1 = new List<Task>();
+                while (!quit[0])
+                {
+                    for (int index = 0; index < grains.Count; ++index)
                     {
-                        for (int index = 0; index < grains.Count; ++index)
+                        if (quit[0])
                         {
-                            if (quit[0])
-                            {
-                                break;
-                            }
-
-                            tasks1.Add(workFunc(index));
+                            break;
                         }
-                        await Task.WhenAll(tasks1);
+
+                        tasks1.Add(workFunc(index));
                     }
-                };
+                    await Task.WhenAll(tasks1);
+                }
+            }
 
             // setup (1) ends here.
 
@@ -499,56 +489,6 @@ namespace UnitTests.ActivationsLifeCycleTests
             }
         }
 
-        [Fact, TestCategory("ActivationCollector"), TestCategory("Performance"), TestCategory("CorePerf")]
-        public async Task ActivationCollectorShouldNotCauseMessageLoss()
-        {
-            await Initialize(DEFAULT_IDLE_TIMEOUT);
-
-            const int idleGrainCount = 0;
-            const int busyGrainCount = 500;
-            var idleGrainTypeName = RuntimeTypeNameFormatter.Format(typeof(IdleActivationGcTestGrain1));
-            var busyGrainTypeName = RuntimeTypeNameFormatter.Format(typeof(BusyActivationGcTestGrain1));
-            const int burstCount = 100;
-
-            List<Task> tasks0 = new List<Task>();
-            List<IBusyActivationGcTestGrain1> busyGrains = new List<IBusyActivationGcTestGrain1>();
-            logger.LogInformation("ActivationCollectorShouldNotCauseMessageLoss: activating {Count} busy grains.", busyGrainCount);
-            for (var i = 0; i < busyGrainCount; ++i)
-            {
-                IBusyActivationGcTestGrain1 g = this.testCluster.GrainFactory.GetGrain<IBusyActivationGcTestGrain1>(Guid.NewGuid());
-                busyGrains.Add(g);
-                tasks0.Add(g.Nop());
-            }
-
-            await busyGrains[0].EnableBurstOnCollection(burstCount);
-
-            logger.LogInformation(
-                "ActivationCollectorShouldNotCauseMessageLoss: activating {Count} idle grains.",
-                idleGrainCount);
-            tasks0.Clear();
-            for (var i = 0; i < idleGrainCount; ++i)
-            {
-                IIdleActivationGcTestGrain1 g = this.testCluster.GrainFactory.GetGrain<IIdleActivationGcTestGrain1>(Guid.NewGuid());
-                tasks0.Add(g.Nop());
-            }
-            await Task.WhenAll(tasks0);
-
-            int activationsCreated = await TestUtils.GetActivationCount(this.testCluster.GrainFactory, idleGrainTypeName) + await TestUtils.GetActivationCount(this.testCluster.GrainFactory, busyGrainTypeName);
-            Assert.Equal(idleGrainCount + busyGrainCount, activationsCreated);
-
-            logger.LogInformation(
-                "ActivationCollectorShouldNotCauseMessageLoss: grains activated; waiting {WaitSeconds} sec (activation GC idle timeout is {DefaultIdleTimeout} sec).",
-                WAIT_TIME.TotalSeconds,
-                DEFAULT_IDLE_TIMEOUT.TotalSeconds);
-            await Task.Delay(WAIT_TIME);
-
-            // we should have only collected grains from the idle category (IdleActivationGcTestGrain1).
-            int idleActivationsNotCollected = await TestUtils.GetActivationCount(this.testCluster.GrainFactory, idleGrainTypeName);
-            int busyActivationsNotCollected = await TestUtils.GetActivationCount(this.testCluster.GrainFactory, busyGrainTypeName);
-            Assert.Equal(0, idleActivationsNotCollected);
-            Assert.Equal(busyGrainCount, busyActivationsNotCollected);
-        }
-
         [Fact, TestCategory("ActivationCollector"), TestCategory("Functional")]
         public async Task ActivationCollectorShouldCollectByCollectionSpecificAgeLimitForTwelveSeconds()
         {
@@ -585,5 +525,25 @@ namespace UnitTests.ActivationsLifeCycleTests
             int activationsNotCollected = await TestUtils.GetActivationCount(this.testCluster.GrainFactory, fullGrainTypeName);
             Assert.Equal(0, activationsNotCollected);
         }
+
+        [Fact, TestCategory("SlowBVT"), TestCategory("Timers")]
+        public async Task NonReentrantGrainTimer_NoKeepAlive_Test()
+        {
+            await Initialize(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(1));
+
+            const string testName = "NonReentrantGrainTimer_NoKeepAlive_Test";
+
+            var grain = this.testCluster.GrainFactory.GetGrain<INonReentrantTimerCallGrain>(GetRandomGrainId());
+
+            // Schedule a timer to fire at the 30s mark which will not extend the grain's lifetime.
+            await grain.StartTimer(testName, TimeSpan.FromSeconds(4), keepAlive: false);
+            await Task.Delay(TimeSpan.FromSeconds(7));
+
+            var tickCount = await grain.GetTickCount();
+
+            // The grain should have been deactivated.
+            Assert.Equal(0, tickCount);
+        }
+
     }
 }

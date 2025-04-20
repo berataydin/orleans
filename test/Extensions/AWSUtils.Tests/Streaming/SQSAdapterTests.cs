@@ -1,10 +1,5 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Orleans.Providers.Streams.Common;
@@ -17,7 +12,6 @@ using Xunit;
 using Xunit.Abstractions;
 using OrleansAWSUtils.Storage;
 using Orleans.Configuration;
-using Orleans.Internal;
 
 namespace AWSUtils.Tests.Streaming
 {
@@ -100,7 +94,7 @@ namespace AWSUtils.Tests.Streaming
                 {
                     while (receivedBatches < NumBatches)
                     {
-                        var messages = receiver.GetQueueMessagesAsync(SQSStorage.MAX_NUMBER_OF_MESSAGE_TO_PEAK).Result.ToArray();
+                        var messages = receiver.GetQueueMessagesAsync(SQSStorage.MAX_NUMBER_OF_MESSAGE_TO_PEEK).Result.ToArray();
                         if (!messages.Any())
                         {
                             continue;
@@ -184,7 +178,7 @@ namespace AWSUtils.Tests.Streaming
             }
         }
 
-        private List<object> CreateEvents(int count)
+        private static List<object> CreateEvents(int count)
         {
             return Enumerable.Range(0, count).Select(i =>
             {
@@ -200,7 +194,7 @@ namespace AWSUtils.Tests.Streaming
         {
             const string DeploymentIdFormat = "cluster-{0}";
             string now = DateTime.UtcNow.ToString("yyyy-MM-dd-hh-mm-ss-ffff");
-            return String.Format(DeploymentIdFormat, now);
+            return string.Format(DeploymentIdFormat, now);
         }
     }
 }

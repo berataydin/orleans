@@ -3,8 +3,9 @@
 </p>
 
 [![NuGet](https://img.shields.io/nuget/v/Microsoft.Orleans.Core.svg?style=flat)](http://www.nuget.org/profiles/Orleans)
-[![Discord](https://img.shields.io/discord/333727978460676096?color=4db798&label=Discord%20Chat&logoColor=4db798)](https://aka.ms/orleans-discord)
 [![Follow on Twitter](https://img.shields.io/twitter/follow/msftorleans.svg?style=social&logo=twitter)](https://twitter.com/intent/follow?screen_name=msftorleans)
+
+[![Discord](https://discordapp.com/api/guilds/333727978460676096/widget.png?style=banner2)](https://aka.ms/orleans-discord)
 
 ### Orleans is a cross-platform framework for building robust, scalable distributed applications
 
@@ -167,13 +168,13 @@ Please see the [getting started tutorial](https://docs.microsoft.com/dotnet/orle
 On Windows, run the `build.cmd` script to build the NuGet packages locally, then reference the required NuGet packages from `/Artifacts/Release/*`.
 You can run `Test.cmd` to run all BVT tests, and `TestAll.cmd` to also run Functional tests.
 
-On Linux and macOS, run the `build.sh` script or `dotnet build` to build Orleans.
+On Linux and macOS, run `dotnet build` to build Orleans.
 
 ## Official builds
 
 The latest stable, production-quality release is located [here](https://github.com/dotnet/orleans/releases/latest).
 
-Nightly builds are published to [a NuGet feed](https://orleans.pkgs.visualstudio.com/orleans-public/_packaging/orleans-builds/nuget/v3/index.json). These builds pass all functional tests, but are not thoroughly tested as the stable builds or pre-release builds published to NuGet.
+Nightly builds are published to [a NuGet feed](https://pkgs.dev.azure.com/dnceng/public/_packaging/orleans-nightly/nuget/v3/index.json). These builds pass all functional tests, but are not thoroughly tested as the stable builds or pre-release builds published to NuGet.
 
 <details>
 <summary>
@@ -185,10 +186,12 @@ To use nightly builds in your project, add the MyGet feed using either of the fo
 1. Changing the .csproj file to include this section:
 
 ```xml
+<ItemGroup>
   <RestoreSources>
     $(RestoreSources);
-    https://orleans.pkgs.visualstudio.com/orleans-public/_packaging/orleans-builds/nuget/v3/index.json;
+    https://pkgs.dev.azure.com/dnceng/public/_packaging/orleans-nightly/nuget/v3/index.json
   </RestoreSources>
+</ItemGroup>
 ```
 
 or
@@ -199,10 +202,9 @@ or
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <packageSources>
-    <clear />
-    <add key="orleans-builds"
-      value="https://orleans.pkgs.visualstudio.com/orleans-public/_packaging/orleans-builds/nuget/v3/index.json" />
-  <add key="nuget" value="https://api.nuget.org/v3/index.json" />
+    <clear /> 
+    <add key="orleans-nightly" value="https://pkgs.dev.azure.com/dnceng/public/_packaging/orleans-nightly/nuget/v3/index.json" />
+    <add key="nuget" value="https://api.nuget.org/v3/index.json" />
   </packageSources>
 </configuration>
 ```
@@ -211,8 +213,8 @@ or
 
 ## Community
 
-[![Discord](https://discordapp.com/api/guilds/333727978460676096/widget.png?style=banner3)](https://aka.ms/orleans-discord)
-
+[![Discord](https://discordapp.com/api/guilds/333727978460676096/widget.png?style=banner4)](https://aka.ms/orleans-discord)
+    
 * Ask questions by [opening an issue on GitHub](https://github.com/dotnet/orleans/issues) or on [Stack Overflow](https://stackoverflow.com/questions/ask?tags=orleans)
 * [Chat on Discord](https://aka.ms/orleans-discord)
 * Follow the [@msftorleans](https://twitter.com/msftorleans) Twitter account for Orleans announcements.

@@ -1,8 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
-using Orleans;
 using Orleans.Runtime;
 using Orleans.TestingHost;
 using TestExtensions;
@@ -10,9 +5,7 @@ using UnitTests.GrainInterfaces;
 using UnitTests.TestHelper;
 using Xunit;
 using Xunit.Abstractions;
-using System.Linq;
 using Orleans.Internal;
-using Orleans.Hosting;
 using Orleans.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,8 +13,6 @@ using Microsoft.Extensions.Hosting;
 
 namespace UnitTests.ActivationsLifeCycleTests
 {
-
-
     [TestCategory("ActivationCollector")]
     public class DeactivateOnIdleTests : OrleansTestingBase, IDisposable
     {
@@ -68,7 +59,7 @@ namespace UnitTests.ActivationsLifeCycleTests
             await a.GetOtherAge(); // prime a's routing cache
             await b.DeactivateSelf();
             Thread.Sleep(5000);
-            var age = a.GetOtherAge().WaitForResultWithThrow(TimeSpan.FromMilliseconds(2000));
+            var age = await a.GetOtherAge().WaitAsync(TimeSpan.FromMilliseconds(2000));
             Assert.True(age.TotalMilliseconds < 2000, "Should be newly activated grain");
         }
 
@@ -266,7 +257,7 @@ namespace UnitTests.ActivationsLifeCycleTests
             }
 
             Assert.True(testCluster.GetActiveSilos().Count() > 1, "This logic requires at least 1 non-primary active silo");
-            Assert.True(false, "Could not find a grain that activates on a non-primary silo, and has the partition be also managed by a non-primary silo");
+            Assert.Fail("Could not find a grain that activates on a non-primary silo, and has the partition be also managed by a non-primary silo");
             return null;
         }
     }

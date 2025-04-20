@@ -1,19 +1,11 @@
 using System;
-using System.Linq;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
-using Orleans.Configuration;
-using Orleans.Configuration.Internal;
-using Orleans.Runtime;
-using Orleans.Runtime.Providers;
 using Orleans.Streams;
-using Orleans.Streams.Core;
 using Orleans.Streams.Filtering;
 
 namespace Orleans.Hosting
 {
     /// <summary>
-    /// Extension methods for confiiguring streaming on silos.
+    /// Extension methods for configuring streaming on silos.
     /// </summary>
     public static class SiloBuilderStreamingExtensions
     {

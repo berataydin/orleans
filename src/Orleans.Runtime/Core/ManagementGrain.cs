@@ -3,7 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Orleans.Concurrency;
 using Orleans.Metadata;
+using Orleans.Placement.Repartitioning;
+using Orleans.Providers;
 using Orleans.Runtime.GrainDirectory;
 using Orleans.Runtime.MembershipService;
 using Orleans.Versions;
@@ -15,7 +18,8 @@ namespace Orleans.Runtime.Management
     /// <summary>
     /// Implementation class for the Orleans management grain.
     /// </summary>
-    internal class ManagementGrain : Grain, IManagementGrain
+    [StatelessWorker, Reentrant]
+    internal partial class ManagementGrain : Grain, IManagementGrain
     {
         private readonly IInternalGrainFactory internalGrainFactory;
         private readonly ISiloStatusOracle siloStatusOracle;
@@ -56,8 +60,6 @@ namespace Orleans.Runtime.Management
 
         public async Task<MembershipEntry[]> GetDetailedHosts(bool onlyActive = false)
         {
-            logger.LogInformation("GetDetailedHosts OnlyActive={OnlyActive}", onlyActive);
-
             await this.membershipTableManager.Refresh();
 
             var table = this.membershipTableManager.MembershipTableSnapshot;
@@ -83,7 +85,7 @@ namespace Orleans.Runtime.Management
         public Task ForceGarbageCollection(SiloAddress[] siloAddresses)
         {
             var silos = GetSiloAddresses(siloAddresses);
-            logger.LogInformation("Forcing garbage collection on {SiloAddresses}", Utils.EnumerableToString(silos));
+            LogInformationForceGarbageCollection(new(silos));
             List<Task> actionPromises = PerformPerSiloAction(silos,
                 s => GetSiloControlReference(s).ForceGarbageCollection());
             return Task.WhenAll(actionPromises);
@@ -106,7 +108,7 @@ namespace Orleans.Runtime.Management
         public Task ForceRuntimeStatisticsCollection(SiloAddress[] siloAddresses)
         {
             var silos = GetSiloAddresses(siloAddresses);
-            logger.LogInformation("Forcing runtime statistics collection on {SiloAddresses}", Utils.EnumerableToString(silos));
+            LogInformationForceRuntimeStatisticsCollection(new(silos));
             List<Task> actionPromises = PerformPerSiloAction(
                 silos,
                 s => GetSiloControlReference(s).ForceRuntimeStatisticsCollection());
@@ -116,7 +118,7 @@ namespace Orleans.Runtime.Management
         public Task<SiloRuntimeStatistics[]> GetRuntimeStatistics(SiloAddress[] siloAddresses)
         {
             var silos = GetSiloAddresses(siloAddresses);
-            if (logger.IsEnabled(LogLevel.Debug)) logger.LogDebug("GetRuntimeStatistics on {SiloAddresses}", Utils.EnumerableToString(silos));
+            LogDebugGetRuntimeStatistics(new(silos));
             var promises = new List<Task<SiloRuntimeStatistics>>();
             foreach (SiloAddress siloAddress in silos)
                 promises.Add(GetSiloControlReference(siloAddress).GetRuntimeStatistics());
@@ -213,10 +215,10 @@ namespace Orleans.Runtime.Management
             return sum;
         }
 
-        public Task<object[]> SendControlCommandToProvider(string providerTypeFullName, string providerName, int command, object arg)
+        public Task<object[]> SendControlCommandToProvider<T>(string providerName, int command, object arg) where T : IControllable
         {
-            return ExecutePerSiloCall(isc => isc.SendControlCommandToProvider(providerTypeFullName, providerName, command, arg),
-                $"SendControlCommandToProvider of type {providerTypeFullName} and name {providerName} command {command}.");
+            return ExecutePerSiloCall(isc => isc.SendControlCommandToProvider<T>(providerName, command, arg),
+                $"SendControlCommandToProvider of type {typeof(T).FullName} and name {providerName} command {command}.");
         }
 
         public ValueTask<SiloAddress> GetActivationAddress(IAddressable reference)
@@ -305,10 +307,7 @@ namespace Orleans.Runtime.Management
         {
             var silos = await GetHosts(true);
 
-            if (logger.IsEnabled(LogLevel.Debug))
-            {
-                logger.LogDebug("Executing {Action} against {SiloAddresses}", actionToLog, Utils.EnumerableToString(silos.Keys));
-            }
+            LogDebugExecutingAction(actionToLog, new(silos));
 
             var actionPromises = new List<Task<object>>();
             foreach (SiloAddress siloAddress in silos.Keys.ToArray())
@@ -336,7 +335,7 @@ namespace Orleans.Runtime.Management
         /// <param name="siloAddresses">List of silos to perform the action for</param>
         /// <param name="perSiloAction">The action function to be performed for each silo</param>
         /// <returns>Array containing one Task for each silo the action was performed for</returns>
-        private List<Task> PerformPerSiloAction(SiloAddress[] siloAddresses, Func<SiloAddress, Task> perSiloAction)
+        private static List<Task> PerformPerSiloAction(SiloAddress[] siloAddresses, Func<SiloAddress, Task> perSiloAction)
         {
             var requestsToSilos = new List<Task>();
             foreach (SiloAddress siloAddress in siloAddresses)
@@ -368,5 +367,84 @@ namespace Orleans.Runtime.Management
 
             return results;
         }
+
+        public async Task<List<GrainCallFrequency>> GetGrainCallFrequencies(SiloAddress[] hostsIds = null)
+        {
+            if (hostsIds == null)
+            {
+                var hosts = await GetHosts(true);
+                hostsIds = [.. hosts.Keys];
+            }
+
+            var results = new List<GrainCallFrequency>();
+            foreach (var host in hostsIds)
+            {
+                var siloPartitioner = IActivationRepartitionerSystemTarget.GetReference(internalGrainFactory, host);
+                var frequencies = await siloPartitioner.GetGrainCallFrequencies();
+                foreach (var frequency in frequencies)
+                {
+                    results.Add(new GrainCallFrequency
+                    {
+                        SourceGrain = frequency.Item1.Source.Id,
+                        TargetGrain = frequency.Item1.Target.Id,
+                        SourceHost = frequency.Item1.Source.Silo,
+                        TargetHost = frequency.Item1.Target.Silo,
+                        CallCount = frequency.Item2
+                    });
+                }
+            }
+
+            return results;
+        }
+
+        public async ValueTask ResetGrainCallFrequencies(SiloAddress[] hostsIds = null)
+        {
+            if (hostsIds == null)
+            {
+                var hosts = await GetHosts(true);
+                hostsIds = [.. hosts.Keys];
+            }
+
+            foreach (var host in hostsIds)
+            {
+                var siloBalancer = IActivationRepartitionerSystemTarget.GetReference(internalGrainFactory, host);
+                await siloBalancer.ResetCounters();
+            }
+        }
+
+        private readonly struct SiloAddressesLogValue(SiloAddress[] siloAddresses)
+        {
+            public override string ToString() => Utils.EnumerableToString(siloAddresses);
+        }
+
+        [LoggerMessage(
+            EventId = 0,
+            Level = LogLevel.Information,
+            Message = "Forcing garbage collection on {SiloAddresses}")]
+        private partial void LogInformationForceGarbageCollection(SiloAddressesLogValue siloAddresses);
+
+        [LoggerMessage(
+            EventId = 0,
+            Level = LogLevel.Information,
+            Message = "Forcing runtime statistics collection on {SiloAddresses}")]
+        private partial void LogInformationForceRuntimeStatisticsCollection(SiloAddressesLogValue siloAddresses);
+
+        [LoggerMessage(
+            EventId = 0,
+            Level = LogLevel.Debug,
+            Message = "GetRuntimeStatistics on {SiloAddresses}")]
+        private partial void LogDebugGetRuntimeStatistics(SiloAddressesLogValue siloAddresses);
+
+        private readonly struct SiloAddressesKeysLogValue(Dictionary<SiloAddress, SiloStatus> silos)
+        {
+            public override string ToString() => Utils.EnumerableToString(silos.Keys);
+        }
+
+        [LoggerMessage(
+            EventId = 0,
+            Level = LogLevel.Debug,
+            Message = "Executing {Action} against {SiloAddresses}"
+        )]
+        private partial void LogDebugExecutingAction(string action, SiloAddressesKeysLogValue siloAddresses);
     }
 }

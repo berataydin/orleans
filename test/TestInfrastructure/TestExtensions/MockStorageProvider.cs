@@ -1,17 +1,10 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Orleans;
 using Orleans.Providers;
 using Orleans.Runtime;
 using Orleans.Serialization;
 using Orleans.Storage;
 using Microsoft.Extensions.Logging;
-using Orleans.Hosting;
 
 namespace UnitTests.StorageTests
 {
@@ -26,16 +19,16 @@ namespace UnitTests.StorageTests
         {
             return builder.ConfigureServices(services =>
             {
-                services.AddSingletonNamedService<IGrainStorage>(name, (sp, n) => createInstance(sp, n));
+                services.AddKeyedSingleton<IGrainStorage>(name, (sp, n) => createInstance(sp, n as string));
 
                 if (typeof(ILifecycleParticipant<ISiloLifecycle>).IsAssignableFrom(typeof(T)))
                 {
-                    services.AddSingletonNamedService(name, (svc, n) => (ILifecycleParticipant<ISiloLifecycle>)svc.GetRequiredServiceByName<IGrainStorage>(name));
+                    services.AddKeyedSingleton(name, (svc, n) => (ILifecycleParticipant<ISiloLifecycle>)svc.GetRequiredKeyedService<IGrainStorage>(name));
                 }
 
                 if (typeof(IControllable).IsAssignableFrom(typeof(T)))
                 {
-                    services.AddSingletonNamedService(name, (svc, n) => (IControllable)svc.GetRequiredServiceByName<IGrainStorage>(name));
+                    services.AddKeyedSingleton(name, (svc, n) => (IControllable)svc.GetRequiredKeyedService<IGrainStorage>(name));
                 }
             });
         }
@@ -71,14 +64,16 @@ namespace UnitTests.StorageTests
 
         private static int _instanceNum;
         private readonly int _id;
-
-        private int initCount, closeCount, readCount, writeCount, deleteCount;
-
+        private readonly int initCount;
+        private int closeCount;
+        private int readCount;
+        private int writeCount;
+        private int deleteCount;
         private readonly int numKeys;
         private readonly DeepCopier copier;
-        private ILocalDataStore StateStore;
+        private readonly ILocalDataStore StateStore;
         private const string stateStoreKey = "State";
-        private ILogger logger;
+        private readonly ILogger logger;
         public string LastId { get; private set; }
         public object LastState { get; private set; }
 
@@ -239,6 +234,7 @@ namespace UnitTests.StorageTests
                 LastState = null;
             }
             grainState.RecordExists = false;
+            grainState.State = Activator.CreateInstance<T>();
             return Task.CompletedTask;
         }
 

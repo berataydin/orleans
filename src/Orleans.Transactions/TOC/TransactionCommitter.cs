@@ -13,7 +13,7 @@ using Orleans.Transactions.TOC;
 
 namespace Orleans.Transactions
 {
-    public class TransactionCommitter<TService> : ITransactionCommitter<TService>, ILifecycleParticipant<IGrainLifecycle>
+    public partial class TransactionCommitter<TService> : ITransactionCommitter<TService>, ILifecycleParticipant<IGrainLifecycle>
         where TService : class
     {
         private readonly ITransactionCommitterConfiguration config;
@@ -53,9 +53,7 @@ namespace Orleans.Transactions
 
             var info = TransactionContext.GetRequiredTransactionInfo();
 
-            if (logger.IsEnabled(LogLevel.Trace))
-                logger.LogTrace("StartWrite {Info}", info);
-
+            LogTraceStartWrite(info);
             if (info.IsReadOnly)
             {
                 throw new OrleansReadOnlyViolatedException(info.Id);
@@ -89,14 +87,7 @@ namespace Orleans.Transactions
                         record.HasCopiedState = true;
                     }
 
-                    if (logger.IsEnabled(LogLevel.Debug))
-                    {
-                        logger.LogDebug(
-                            "Update-lock write v{SequenceNumber} {TransactionId} {Timestamp}",
-                            record.SequenceNumber,
-                            record.TransactionId,
-                            record.Timestamp.ToString("o"));
-                    }
+                    LogDebugUpdateLockWrite(record.SequenceNumber, record.TransactionId, new(record.Timestamp));
 
                     // record this write in the transaction info data structure
                     info.RecordWrite(this.participantId, record.Timestamp);
@@ -111,13 +102,7 @@ namespace Orleans.Transactions
                     }
                     finally
                     {
-                        if (logger.IsEnabled(LogLevel.Trace))
-                            logger.LogTrace(
-                                "EndWrite {Info} {TransactionId} {Timestamp}",
-                                info,
-                                record.TransactionId,
-                                record.Timestamp);
-
+                        LogTraceEndWrite(info, record.TransactionId, new(record.Timestamp));
                         detectReentrancy = false;
                     }
                 }
@@ -139,10 +124,10 @@ namespace Orleans.Transactions
             ITransactionalStateStorage<OperationState> storage = storageFactory.Create<OperationState>(this.config.StorageName, this.config.ServiceName);
 
             // setup transaction processing pipe
-            Action deactivate = () => grainRuntime.DeactivateOnIdle(context);
+            void deactivate() => grainRuntime.DeactivateOnIdle(context);
             var options = this.context.ActivationServices.GetRequiredService<IOptions<TransactionalStateOptions>>();
             var clock = this.context.ActivationServices.GetRequiredService<IClock>();
-            TService service = this.context.ActivationServices.GetRequiredServiceByName<TService>(this.config.ServiceName);
+            TService service = this.context.ActivationServices.GetRequiredKeyedService<TService>(this.config.ServiceName);
             var timerManager = this.context.ActivationServices.GetRequiredService<ITimerManager>();
             this.queue = new TocTransactionQueue<TService>(service, options, this.participantId, deactivate, storage, clock, logger, timerManager, this.activationLifetime);
 
@@ -160,5 +145,28 @@ namespace Orleans.Transactions
             [Id(0)]
             public ITransactionCommitOperation<TService> Operation { get; set; }
         }
+
+        [LoggerMessage(
+            Level = LogLevel.Trace,
+            Message = "StartWrite {Info}"
+        )]
+        private partial void LogTraceStartWrite(TransactionInfo info);
+
+        private readonly struct DateTimeLogRecord(DateTime ts)
+        {
+            public override string ToString() => ts.ToString("o");
+        }
+
+        [LoggerMessage(
+            Level = LogLevel.Debug,
+            Message = "Update-lock write v{SequenceNumber} {TransactionId} {Timestamp}"
+        )]
+        private partial void LogDebugUpdateLockWrite(long sequenceNumber, Guid transactionId, DateTimeLogRecord timestamp);
+
+        [LoggerMessage(
+            Level = LogLevel.Trace,
+            Message = "EndWrite {Info} {TransactionId} {Timestamp}"
+        )]
+        private partial void LogTraceEndWrite(TransactionInfo info, Guid transactionId, DateTimeLogRecord timestamp);
     }
 }

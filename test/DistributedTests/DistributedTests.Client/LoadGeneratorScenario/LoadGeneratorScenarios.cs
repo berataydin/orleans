@@ -1,7 +1,4 @@
-using System;
-using System.Threading.Tasks;
 using DistributedTests.GrainInterfaces;
-using Orleans;
 
 namespace DistributedTests.Client.LoadGeneratorScenario
 {
@@ -21,5 +18,14 @@ namespace DistributedTests.Client.LoadGeneratorScenario
         public IPingGrain GetStateForWorker(IClusterClient client, int workerId) => client.GetGrain<IPingGrain>(Guid.NewGuid());
 
         public ValueTask IssueRequest(IPingGrain state) => state.Ping();
+    }
+
+    public class FanOutScenario : ILoadGeneratorScenario<ITreeGrain>
+    {
+        public string Name => "fan-out";
+
+        public ITreeGrain GetStateForWorker(IClusterClient client, int workerId) => client.GetGrain<ITreeGrain>(primaryKey: 0, keyExtension: workerId.ToString());
+
+        public ValueTask IssueRequest(ITreeGrain root) => root.Ping();
     }
 }

@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Orleans.Serialization.Invocation
@@ -70,5 +71,23 @@ namespace Orleans.Serialization.Invocation
         /// Gets the interface type.
         /// </summary>
         Type GetInterfaceType();
+
+        /// <summary>
+        /// Gets the default response timeout.
+        /// </summary>
+        TimeSpan? GetDefaultResponseTimeout() => default;
+
+        /// <summary>
+        /// Gets the cancellation token for this request. If the request does not accept a cancellation token, this will be <see cref="CancellationToken.None"/>.
+        /// </summary>
+        /// <returns>The cancellation token for this request.</returns>
+        CancellationToken GetCancellationToken() => default;
+
+        /// <summary>
+        /// Tries to cancel the invocation.
+        /// </summary>
+        /// <remarks>This is only valid after <see cref="SetTarget(ITargetHolder)"/> has been called, and only has an effect for requests which support cancellation.</remarks>
+        /// <returns><see langword="true"/> if cancellation was requested, otherwise <see langword="false"/>.</returns>
+        bool TryCancel() => false;
     }
 }

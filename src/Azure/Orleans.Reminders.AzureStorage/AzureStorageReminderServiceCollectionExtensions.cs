@@ -1,7 +1,6 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Orleans;
 using Orleans.Configuration;
 using Orleans.Reminders.AzureStorage;
 using Orleans.Runtime.ReminderService;
@@ -51,6 +50,7 @@ namespace Orleans.Hosting
             services.AddSingleton<IReminderTable, AzureBasedReminderTable>();
             configureOptions?.Invoke(services.AddOptions<AzureTableReminderStorageOptions>());
             services.ConfigureFormatter<AzureTableReminderStorageOptions>();
+            services.AddTransient<IConfigurationValidator>(sp => new AzureTableReminderStorageOptionsValidator(sp.GetRequiredService<IOptionsMonitor<AzureTableReminderStorageOptions>>().Get(Options.DefaultName), Options.DefaultName));
             return services;
         }
 
@@ -68,7 +68,17 @@ namespace Orleans.Hosting
         /// </returns>
         public static IServiceCollection UseAzureTableReminderService(this IServiceCollection services, string connectionString)
         {
-            services.UseAzureTableReminderService(options => options.ConfigureTableServiceClient(connectionString));
+            services.UseAzureTableReminderService(options =>
+            {
+                if (Uri.TryCreate(connectionString, UriKind.Absolute, out var uri))
+                {
+                    options.TableServiceClient = new(uri);
+                }
+                else
+                {
+                    options.TableServiceClient = new(connectionString);
+                }
+            });
             return services;
         }
     }

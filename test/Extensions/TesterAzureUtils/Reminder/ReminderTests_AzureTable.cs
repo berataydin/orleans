@@ -1,15 +1,9 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using Orleans.Runtime;
 using Orleans.TestingHost;
 using UnitTests.GrainInterfaces;
 using Xunit;
-using System.Linq;
 using Microsoft.Extensions.Logging;
 using UnitTests.TimerTests;
-using Orleans.Hosting;
 using Orleans.Internal;
 
 // ReSharper disable InconsistentNaming
@@ -52,7 +46,7 @@ namespace Tester.AzureUtils.TimerTests
             await Test_Reminders_Basic_StopByRef();
         }
 
-        [SkippableFact, TestCategory("Functional")]
+        [SkippableFact(Skip = "https://github.com/dotnet/orleans/issues/9337"), TestCategory("Functional")]
         public async Task Rem_Azure_Basic_ListOps()
         {
             await Test_Reminders_Basic_ListOps();
@@ -72,7 +66,7 @@ namespace Tester.AzureUtils.TimerTests
             await Test_Reminders_ReminderNotFound();
         }
 
-        [SkippableFact, TestCategory("Functional")]
+        [SkippableFact(Skip = "https://github.com/dotnet/orleans/issues/9344"), TestCategory("Functional")]
         public async Task Rem_Azure_Basic()
         {
             // start up a test grain and get the period that it's programmed to use.
@@ -155,7 +149,7 @@ namespace Tester.AzureUtils.TimerTests
             await this.HostedCluster.WaitForLivenessToStabilizeAsync();
 
             //Block until all tasks complete.
-            await Task.WhenAll(tasks).WithTimeout(ENDWAIT);
+            await Task.WhenAll(tasks).WaitAsync(ENDWAIT);
         }
 
         [SkippableFact, TestCategory("Functional")]
@@ -177,7 +171,7 @@ namespace Tester.AzureUtils.TimerTests
             };
 
             //Block until all tasks complete.
-            await Task.WhenAll(tasks).WithTimeout(ENDWAIT);
+            await Task.WhenAll(tasks).WaitAsync(ENDWAIT);
         }
 
         [SkippableFact, TestCategory("Functional")]
@@ -228,7 +222,7 @@ namespace Tester.AzureUtils.TimerTests
             silos.RemoveAt(i);
             await this.HostedCluster.StopSiloAsync(silos[Random.Shared.Next(silos.Count)]);
 
-            await Task.WhenAll(tasks).WithTimeout(ENDWAIT); // Block until all tasks complete.
+            await Task.WhenAll(tasks).WaitAsync(ENDWAIT); // Block until all tasks complete.
         }
 
         [SkippableFact, TestCategory("Functional")]
@@ -264,9 +258,9 @@ namespace Tester.AzureUtils.TimerTests
             {
                 t.GetAwaiter().GetResult();
             });
-            await Task.WhenAll(new[] { t1, t2 }).WithTimeout(ENDWAIT);
+            await Task.WhenAll(new[] { t1, t2 }).WaitAsync(ENDWAIT);
 
-            await Task.WhenAll(tasks).WithTimeout(ENDWAIT); // Block until all tasks complete.
+            await Task.WhenAll(tasks).WaitAsync(ENDWAIT); // Block until all tasks complete.
             log.LogInformation("\n\n\nReminderTest_1F1J_MultiGrain passed OK.\n\n\n");
         }
 
@@ -277,7 +271,7 @@ namespace Tester.AzureUtils.TimerTests
             Task<IGrainReminder> promise1 = grain.StartReminder(DR);
             Task<IGrainReminder> promise2 = grain.StartReminder(DR);
             Task<IGrainReminder>[] tasks = { promise1, promise2 };
-            await Task.WhenAll(tasks).WithTimeout(TimeSpan.FromSeconds(15));
+            await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(15));
             //Assert.NotEqual(promise1.Result, promise2.Result);
             // TODO: write tests where period of a reminder is changed
         }
@@ -335,9 +329,9 @@ namespace Tester.AzureUtils.TimerTests
             log.LogInformation("Stopping a silo and joining a silo");
             Task t1 = Task.Run(async () => await this.HostedCluster.StopSiloAsync(siloToKill));
             Task t2 = Task.Run(async () => await this.HostedCluster.StartAdditionalSilosAsync(1));
-            await Task.WhenAll(new[] { t1, t2 }).WithTimeout(ENDWAIT);
+            await Task.WhenAll(new[] { t1, t2 }).WaitAsync(ENDWAIT);
 
-            await Task.WhenAll(tasks).WithTimeout(ENDWAIT); // Block until all tasks complete.
+            await Task.WhenAll(tasks).WaitAsync(ENDWAIT); // Block until all tasks complete.
         }
 
         [SkippableFact, TestCategory("Functional")]

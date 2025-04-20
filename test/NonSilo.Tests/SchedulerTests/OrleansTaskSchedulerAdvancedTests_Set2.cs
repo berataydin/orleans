@@ -1,9 +1,6 @@
-using System;
 using System.Diagnostics;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Internal;
 using Orleans.Runtime;
 using Orleans.Runtime.Scheduler;
@@ -11,7 +8,6 @@ using Orleans.Runtime.TestHooks;
 using Orleans.Statistics;
 using TestExtensions;
 using UnitTests.Grains;
-using UnitTests.TesterInternal;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -23,15 +19,18 @@ namespace UnitTests.SchedulerTests
         private static readonly int WaitFactor = Debugger.IsAttached ? 100 : 1;
         private readonly ITestOutputHelper output;
         private readonly UnitTestSchedulingContext context;
-
-        private readonly IHostEnvironmentStatistics performanceMetrics;
+        private readonly WorkItemGroup workItemGroup;
+        private readonly ActivationTaskScheduler scheduler;
+        private readonly IEnvironmentStatisticsProvider environmentStatisticsProvider;
         private readonly ILoggerFactory loggerFactory;
         public OrleansTaskSchedulerAdvancedTests_Set2(ITestOutputHelper output)
         {
             this.output = output;
             this.loggerFactory = OrleansTaskSchedulerBasicTests.InitSchedulerLogging();
-            this.context = new UnitTestSchedulingContext();
-            this.performanceMetrics = new TestHooksHostEnvironmentStatistics();
+            this.context = UnitTestSchedulingContext.Create(loggerFactory);
+            this.workItemGroup = context.WorkItemGroup;
+            this.scheduler = workItemGroup.TaskScheduler;
+            this.environmentStatisticsProvider = new TestHooksEnvironmentStatisticsProvider();
         }
         
         public void Dispose()
@@ -40,12 +39,10 @@ namespace UnitTests.SchedulerTests
         }
 
         [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
-        public void ActivationSched_SimpleFifoTest()
+        public async Task ActivationSched_SimpleFifoTest()
         {
             // This is not a great test because there's a 50/50 shot that it will work even if the scheduling
             // is completely and thoroughly broken and both closures are executed "simultaneously"
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, loggerFactory);
-            TaskScheduler scheduler = workItemGroup.TaskScheduler;
 
             int n = 0;
             // ReSharper disable AccessToModifiedClosure
@@ -57,7 +54,7 @@ namespace UnitTests.SchedulerTests
             task2.Start(scheduler);
 
             // Pause to let things run
-            Thread.Sleep(1500);
+            await task2;
 
             // N should be 15, because the two tasks should execute in order
             Assert.True(n != 0, "Work items did not get executed");
@@ -65,11 +62,8 @@ namespace UnitTests.SchedulerTests
         }
 
         [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
-        public void ActivationSched_NewTask_ContinueWith_Wrapped()
+        public async Task ActivationSched_NewTask_ContinueWith_Wrapped()
         {
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, loggerFactory);
-            TaskScheduler scheduler = workItemGroup.TaskScheduler;
-
             Task<Task> wrapped = new Task<Task>(() =>
             {
                 this.output.WriteLine("#0 - new Task - SynchronizationContext.Current={0} TaskScheduler.Current={1}",
@@ -93,21 +87,19 @@ namespace UnitTests.SchedulerTests
                 return t1;
             });
             wrapped.Start(scheduler);
-            bool ok = wrapped.Unwrap().Wait(TimeSpan.FromSeconds(2));
-            Assert.True(ok, "Finished OK");
+            await wrapped.Unwrap().WaitAsync(TimeSpan.FromSeconds(2));
         }
 
         [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
-        public void ActivationSched_SubTaskExecutionSequencing()
+        public async Task ActivationSched_SubTaskExecutionSequencing()
         {
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, loggerFactory);
-            TaskScheduler scheduler = workItemGroup.TaskScheduler;
-
             LogContext("Main-task " + Task.CurrentId);
 
             int n = 0;
 
-            Action action = () =>
+            var finished = new TaskCompletionSource();
+            int numCompleted = 0;
+            void action()
             {
                 LogContext("WorkItem-task " + Task.CurrentId);
 
@@ -132,9 +124,13 @@ namespace UnitTests.SchedulerTests
                         LogContext("Sub-task " + id + "-ContinueWith");
 
                         this.output.WriteLine("Sub-task " + id + " Done");
+                        if (Interlocked.Increment(ref numCompleted) == 10)
+                        {
+                            finished.SetResult();
+                        }
                     });
                 }
-            };
+            }
 
             Task t = new Task(action);
 
@@ -142,7 +138,7 @@ namespace UnitTests.SchedulerTests
 
             // Pause to let things run
             this.output.WriteLine("Main-task sleeping");
-            Thread.Sleep(TimeSpan.FromSeconds(2));
+            await finished.Task;
             this.output.WriteLine("Main-task awake");
 
             // N should be 10, because all tasks should execute serially
@@ -153,9 +149,6 @@ namespace UnitTests.SchedulerTests
         [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
         public async Task ActivationSched_ContinueWith_1_Test()
         {
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, loggerFactory);
-            TaskScheduler scheduler = workItemGroup.TaskScheduler;
-
             var result = new TaskCompletionSource<bool>();
             int n = 0;
 
@@ -178,11 +171,11 @@ namespace UnitTests.SchedulerTests
             var timeoutLimit = TimeSpan.FromSeconds(2);
             try
             {
-                await result.Task.WithTimeout(timeoutLimit);
+                await result.Task.WaitAsync(timeoutLimit);
             }
             catch (TimeoutException)
             {
-                Assert.True(false, "Result did not arrive before timeout " + timeoutLimit);
+                Assert.Fail("Result did not arrive before timeout " + timeoutLimit);
             }
 
             Assert.True(n != 0, "Work items did not get executed");
@@ -192,9 +185,6 @@ namespace UnitTests.SchedulerTests
         [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
         public async Task ActivationSched_WhenAny()
         {
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, loggerFactory);
-            TaskScheduler scheduler = workItemGroup.TaskScheduler;
-
             ManualResetEvent pause1 = new ManualResetEvent(false);
             ManualResetEvent pause2 = new ManualResetEvent(false);
             var finish = new TaskCompletionSource<bool>();
@@ -229,11 +219,11 @@ namespace UnitTests.SchedulerTests
             var timeoutLimit = TimeSpan.FromSeconds(1);
             try
             {
-                await finish.Task.WithTimeout(timeoutLimit);
+                await finish.Task.WaitAsync(timeoutLimit);
             }
             catch (TimeoutException)
             {
-                Assert.True(false, "Result did not arrive before timeout " + timeoutLimit);
+                Assert.Fail("Result did not arrive before timeout " + timeoutLimit);
             }
 
             pause1.Set();
@@ -249,9 +239,6 @@ namespace UnitTests.SchedulerTests
         [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
         public async Task ActivationSched_WhenAny_Timeout()
         {
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, loggerFactory);
-            TaskScheduler scheduler = workItemGroup.TaskScheduler;
-
             ManualResetEvent pause1 = new ManualResetEvent(false);
             ManualResetEvent pause2 = new ManualResetEvent(false);
             var finish = new TaskCompletionSource<bool>();
@@ -286,11 +273,11 @@ namespace UnitTests.SchedulerTests
             var timeoutLimit = TimeSpan.FromSeconds(1);
             try
             {
-                await finish.Task.WithTimeout(timeoutLimit);
+                await finish.Task.WaitAsync(timeoutLimit);
             }
             catch (TimeoutException)
             {
-                Assert.True(false, "Result did not arrive before timeout " + timeoutLimit);
+                Assert.Fail("Result did not arrive before timeout " + timeoutLimit);
             }
 
             Assert.NotNull(join);
@@ -309,9 +296,6 @@ namespace UnitTests.SchedulerTests
         [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
         public async Task ActivationSched_WhenAny_Busy_Timeout()
         {
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, loggerFactory);
-            TaskScheduler scheduler = workItemGroup.TaskScheduler;
-
             var pause1 = new TaskCompletionSource<bool>();
             var pause2 = new TaskCompletionSource<bool>();
             var finish = new TaskCompletionSource<bool>();
@@ -325,10 +309,12 @@ namespace UnitTests.SchedulerTests
                     this.output.WriteLine("Task-1 Started");
                     Assert.Equal(scheduler, TaskScheduler.Current);
                     int num1 = 1;
+#pragma warning disable xUnit1031 // Do not use blocking task operations in test method
                     while (!pause1.Task.Result) // Infinite busy loop
                     {
                         num1 = Random.Shared.Next();
                     }
+#pragma warning restore xUnit1031 // Do not use blocking task operations in test method
                     this.output.WriteLine("Task-1 Done");
                     return num1;
                 });
@@ -337,10 +323,12 @@ namespace UnitTests.SchedulerTests
                     this.output.WriteLine("Task-2 Started");
                     Assert.Equal(scheduler, TaskScheduler.Current);
                     int num2 = 2;
+#pragma warning disable xUnit1031 // Do not use blocking task operations in test method
                     while (!pause2.Task.Result) // Infinite busy loop
                     {
                         num2 = Random.Shared.Next();
                     }
+#pragma warning restore xUnit1031 // Do not use blocking task operations in test method
                     this.output.WriteLine("Task-2 Done");
                     return num2;
                 });
@@ -354,11 +342,11 @@ namespace UnitTests.SchedulerTests
             var timeoutLimit = TimeSpan.FromSeconds(1);
             try
             {
-                await finish.Task.WithTimeout(timeoutLimit);
+                await finish.Task.WaitAsync(timeoutLimit);
             }
             catch (TimeoutException)
             {
-                Assert.True(false, "Result did not arrive before timeout " + timeoutLimit);
+                Assert.Fail("Result did not arrive before timeout " + timeoutLimit);
             }
 
             Assert.NotNull(join); // Joined promise assigned
@@ -374,9 +362,6 @@ namespace UnitTests.SchedulerTests
         [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
         public async Task ActivationSched_Task_Run()
         {
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, loggerFactory);
-            TaskScheduler scheduler = workItemGroup.TaskScheduler;
-
             ManualResetEvent pause1 = new ManualResetEvent(false);
             ManualResetEvent pause2 = new ManualResetEvent(false);
             var finish = new TaskCompletionSource<bool>();
@@ -417,11 +402,11 @@ namespace UnitTests.SchedulerTests
             var timeoutLimit = TimeSpan.FromSeconds(1);
             try
             {
-                await finish.Task.WithTimeout(timeoutLimit);
+                await finish.Task.WaitAsync(timeoutLimit);
             }
             catch (TimeoutException)
             {
-                Assert.True(false, "Result did not arrive before timeout " + timeoutLimit);
+                Assert.Fail("Result did not arrive before timeout " + timeoutLimit);
             }
 
             pause1.Set();
@@ -436,9 +421,6 @@ namespace UnitTests.SchedulerTests
         [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
         public async Task ActivationSched_Task_Run_Delay()
         {
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, loggerFactory);
-            TaskScheduler scheduler = workItemGroup.TaskScheduler;
-
             ManualResetEvent pause1 = new ManualResetEvent(false);
             ManualResetEvent pause2 = new ManualResetEvent(false);
             var finish = new TaskCompletionSource<bool>();
@@ -483,11 +465,11 @@ namespace UnitTests.SchedulerTests
             var timeoutLimit = TimeSpan.FromSeconds(1);
             try
             {
-                await finish.Task.WithTimeout(timeoutLimit);
+                await finish.Task.WaitAsync(timeoutLimit);
             }
             catch (TimeoutException)
             {
-                Assert.True(false, "Result did not arrive before timeout " + timeoutLimit);
+                Assert.Fail("Result did not arrive before timeout " + timeoutLimit);
             }
 
             pause1.Set();
@@ -502,9 +484,6 @@ namespace UnitTests.SchedulerTests
         [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
         public async Task ActivationSched_Task_Delay()
         {
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, loggerFactory);
-            TaskScheduler scheduler = workItemGroup.TaskScheduler;
-
             Task<Task> wrapper = new Task<Task>(async () =>
             {
                 Assert.Equal(scheduler, TaskScheduler.Current);
@@ -535,9 +514,6 @@ namespace UnitTests.SchedulerTests
         [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
         public async Task ActivationSched_Turn_Execution_Order_Loop()
         {
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, loggerFactory);
-            TaskScheduler scheduler = workItemGroup.TaskScheduler;
-
             const int NumChains = 100;
             const int ChainLength = 3;
             // Can we add a unit test that basicaly checks that any turn is indeed run till completion before any other turn? 
@@ -621,23 +597,23 @@ namespace UnitTests.SchedulerTests
 
                 try
                 {
-                    await resultHandles[i].Task.WithTimeout(waitCheckTime);
+                    await resultHandles[i].Task.WaitAsync(waitCheckTime);
                 }
                 catch (TimeoutException)
                 {
-                    Assert.True(false, "Result did not arrive before timeout " + waitCheckTime);
+                    Assert.Fail("Result did not arrive before timeout " + waitCheckTime);
                 }
 
-                bool ok = resultHandles[i].Task.Result;
+                bool ok = await resultHandles[i].Task;
                 
                 try
                 {
                     // since resultHandle being complete doesn't directly imply that the final chain was completed (there's a chance for a race condition), give a small chance for it to complete.
-                    await taskChainEnds[i].WithTimeout(TimeSpan.FromMilliseconds(10));
+                    await taskChainEnds[i].WaitAsync(TimeSpan.FromMilliseconds(10));
                 }
                 catch (TimeoutException)
                 {
-                    Assert.True(false, $"Task chain end {i} should complete very shortly after after its resultHandle");
+                    Assert.Fail($"Task chain end {i} should complete very shortly after after its resultHandle");
                 }
 
                 Assert.True(taskChainEnds[i].IsCompleted, "Task chain " + i + " should be completed");
@@ -650,37 +626,12 @@ namespace UnitTests.SchedulerTests
         [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
         public async Task ActivationSched_Test1()
         {
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, loggerFactory);
-            TaskScheduler scheduler = workItemGroup.TaskScheduler;
-
             await Run_ActivationSched_Test1(scheduler, false);
         }
 
         [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
         public async Task ActivationSched_Test1_Bounce()
         {
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, loggerFactory);
-            TaskScheduler scheduler = workItemGroup.TaskScheduler;
-
-            await Run_ActivationSched_Test1(scheduler, true);
-        }
-
-        [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
-        public async Task OrleansSched_Test1()
-        {
-            UnitTestSchedulingContext context = new UnitTestSchedulingContext();
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, this.loggerFactory);
-            ActivationTaskScheduler scheduler = workItemGroup.TaskScheduler;
-
-            await Run_ActivationSched_Test1(scheduler, false);
-        }
-        [Fact, TestCategory("Functional"), TestCategory("Scheduler")]
-        public async Task OrleansSched_Test1_Bounce()
-        {
-            UnitTestSchedulingContext context = new UnitTestSchedulingContext();
-            var workItemGroup = SchedulingHelper.CreateWorkItemGroupForTesting(context, this.loggerFactory);
-            ActivationTaskScheduler scheduler = workItemGroup.TaskScheduler;
-
             await Run_ActivationSched_Test1(scheduler, true);
         }
 
@@ -691,7 +642,7 @@ namespace UnitTests.SchedulerTests
             {
                 SiloAddress = SiloAddressUtils.NewLocalSiloAddress(23)
             };
-            var grain = new NonReentrentStressGrainWithoutState();
+            var grain = new NonReentrantStressGrainWithoutState();
 
             await Task.Factory.StartNew(() => grain.OnActivateAsync(CancellationToken.None), CancellationToken.None, TaskCreationOptions.None, scheduler).Unwrap();
 
@@ -705,7 +656,7 @@ namespace UnitTests.SchedulerTests
                 
                 Task t1 = grain.Test1();
 
-                Action wrappedDoneAction = () => { wrappedDone.SetResult(true); };
+                void wrappedDoneAction() { wrappedDone.SetResult(true); }
 
                 if (bounceToThreadPool)
                 {
@@ -727,11 +678,11 @@ namespace UnitTests.SchedulerTests
             var timeoutLimit = TimeSpan.FromSeconds(1);
             try
             {
-                await wrapperDone.Task.WithTimeout(timeoutLimit);
+                await wrapperDone.Task.WaitAsync(timeoutLimit);
             }
             catch (TimeoutException)
             {
-                Assert.True(false, "Result did not arrive before timeout " + timeoutLimit);
+                Assert.Fail("Result did not arrive before timeout " + timeoutLimit);
             }
             bool done = wrapperDone.Task.Result;
 
@@ -743,11 +694,11 @@ namespace UnitTests.SchedulerTests
             await wrapped;
             try
             {
-                await wrappedDone.Task.WithTimeout(timeoutLimit);
+                await wrappedDone.Task.WaitAsync(timeoutLimit);
             }
             catch (TimeoutException)
             {
-                Assert.True(false, "Result did not arrive before timeout " + timeoutLimit);
+                Assert.Fail("Result did not arrive before timeout " + timeoutLimit);
             }
             done = wrappedDone.Task.Result;
             Assert.True(done, "Wrapped Task should be finished");

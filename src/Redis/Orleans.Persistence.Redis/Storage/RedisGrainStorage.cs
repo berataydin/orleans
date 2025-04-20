@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 using Orleans.Configuration;
 using Orleans.Persistence.Redis;
 using Orleans.Runtime;
+using Orleans.Serialization.Serializers;
 using Orleans.Storage;
 using StackExchange.Redis;
 using static System.FormattableString;
@@ -19,7 +20,7 @@ namespace Orleans.Persistence
     /// <summary>
     /// Redis-based grain storage provider
     /// </summary>
-    internal class RedisGrainStorage : IGrainStorage, ILifecycleParticipant<ISiloLifecycle>
+    public class RedisGrainStorage : IGrainStorage, ILifecycleParticipant<ISiloLifecycle>
     {
         private readonly string _serviceId;
         private readonly RedisValue _ttl;
@@ -27,8 +28,9 @@ namespace Orleans.Persistence
         private readonly string _name;
         private readonly ILogger _logger;
         private readonly RedisStorageOptions _options;
+        private readonly IActivatorProvider _activatorProvider;
         private readonly IGrainStorageSerializer _grainStorageSerializer;
-
+        private readonly Func<string, GrainId, RedisKey> _getKeyFunc;
         private IConnectionMultiplexer _connection;
         private IDatabase _db;
 
@@ -40,15 +42,18 @@ namespace Orleans.Persistence
             RedisStorageOptions options,
             IGrainStorageSerializer grainStorageSerializer,
             IOptions<ClusterOptions> clusterOptions,
+            IActivatorProvider activatorProvider,
             ILogger<RedisGrainStorage> logger)
         {
             _name = name;
             _logger = logger;
             _options = options;
+            _activatorProvider = activatorProvider;
             _grainStorageSerializer = options.GrainStorageSerializer ?? grainStorageSerializer;
             _serviceId = clusterOptions.Value.ServiceId;
             _ttl = options.EntryExpiry is { } ts ? ts.TotalSeconds.ToString(CultureInfo.InvariantCulture) : "-1";
             _keyPrefix = Encoding.UTF8.GetBytes($"{_serviceId}/state/");
+            _getKeyFunc = _options.GetStorageKey ?? DefaultGetStorageKey;
         }
 
         /// <inheritdoc />
@@ -103,31 +108,32 @@ namespace Orleans.Persistence
         /// <inheritdoc />
         public async Task ReadStateAsync<T>(string grainType, GrainId grainId, IGrainState<T> grainState)
         {
-            var key = GetKey(grainId);
+            var key = _getKeyFunc(grainType, grainId);
 
             try
             {
                 var hashEntries = await _db.HashGetAllAsync(key).ConfigureAwait(false);
                 if (hashEntries.Length == 2)
                 {
-                    string eTag = hashEntries.Single(e => e.Name == "etag").Value;
-                    ReadOnlyMemory<byte> data = hashEntries.Single(e => e.Name == "data").Value;
+                    string eTag = hashEntries.Single(static e => e.Name == "etag").Value;
+                    grainState.ETag = eTag;
 
+                    ReadOnlyMemory<byte> data = hashEntries.Single(static e => e.Name == "data").Value;
                     if (data.Length > 0)
                     {
                         grainState.State = _grainStorageSerializer.Deserialize<T>(data);
+                        grainState.RecordExists = true;
                     }
                     else
                     {
-                        grainState.State = Activator.CreateInstance<T>();
+                        grainState.State = CreateInstance<T>();
+                        grainState.RecordExists = false;
                     }
-
-                    grainState.ETag = eTag;
-                    grainState.RecordExists = true;
                 }
                 else
                 {
                     grainState.ETag = null;
+                    grainState.State = CreateInstance<T>();
                     grainState.RecordExists = false;
                 }
             }
@@ -148,7 +154,7 @@ namespace Orleans.Persistence
             const string WriteScript =
                 """
                 local etag = redis.call('HGET', KEYS[1], 'etag')
-                if (not etag and (ARGV[1] == nil or ARGV[1] == '')) or etag == ARGV[1] then
+                if ((not etag or etag == '') and (not ARGV[1] or ARGV[1] == '')) or etag == ARGV[1] then
                   redis.call('HMSET', KEYS[1], 'etag', ARGV[2], 'data', ARGV[3])
                   if ARGV[4] ~= '-1' then
                     redis.call('EXPIRE', KEYS[1], ARGV[4])
@@ -159,13 +165,13 @@ namespace Orleans.Persistence
                 end
                 """;
 
-            var key = GetKey(grainId);
+            var key = _getKeyFunc(grainType, grainId);
             RedisValue etag = grainState.ETag ?? "";
             RedisValue newEtag = Guid.NewGuid().ToString("N");
 
             try
             {
-                var payload = new RedisValue(_grainStorageSerializer.Serialize<T>(grainState.State).ToString());
+                RedisValue payload = _grainStorageSerializer.Serialize<T>(grainState.State).ToMemory();
                 var keys = new RedisKey[] { key };
                 var args = new RedisValue[] { etag, newEtag, payload, _ttl };
                 var response = await _db.ScriptEvaluateAsync(WriteScript, keys, args).ConfigureAwait(false);
@@ -187,11 +193,36 @@ namespace Orleans.Persistence
                     key);
                 throw new RedisStorageException(
                     Invariant($"Failed to write grain state for {grainType} grain with ID {grainId} and storage key {key}. {exception.GetType()}: {exception.Message}"));
-
             }
         }
 
-        private RedisKey GetKey(GrainId grainId) => _keyPrefix.Append(grainId.ToString());
+        /// <summary>
+        /// Default implementation of <see cref="RedisStorageOptions.GetStorageKey"/> which returns a key equivalent to <c>{ServiceId}/state/{grainId}/{grainType}</c>
+        /// </summary>
+        private RedisKey DefaultGetStorageKey(string grainType, GrainId grainId)
+        {
+            var grainIdTypeBytes = IdSpan.UnsafeGetArray(grainId.Type.Value);
+            var grainIdKeyBytes = IdSpan.UnsafeGetArray(grainId.Key);
+            var grainTypeLength = Encoding.UTF8.GetByteCount(grainType);
+            var suffix = new byte[grainIdTypeBytes.Length + 1 + grainIdKeyBytes.Length + 1 + grainTypeLength];
+            var index = 0;
+
+            grainIdTypeBytes.CopyTo(suffix, 0);
+            index += grainIdTypeBytes.Length;
+
+            suffix[index++] = (byte)'/';
+
+            grainIdKeyBytes.CopyTo(suffix, index);
+            index += grainIdKeyBytes.Length;
+
+            suffix[index++] = (byte)'/';
+
+            var bytesWritten = Encoding.UTF8.GetBytes(grainType, suffix.AsSpan(index));
+
+            Debug.Assert(bytesWritten == grainTypeLength);
+            Debug.Assert(index + bytesWritten == suffix.Length);
+            return _keyPrefix.Append(suffix);
+        }
 
         /// <inheritdoc />
         public async Task ClearStateAsync<T>(string grainType, GrainId grainId, IGrainState<T> grainState)
@@ -201,19 +232,20 @@ namespace Orleans.Persistence
                 RedisValue etag = grainState.ETag ?? "";
                 RedisResult response;
                 string newETag;
+                var key = _getKeyFunc(grainType, grainId);
                 if (_options.DeleteStateOnClear)
                 {
                     const string DeleteScript =
                         """
                         local etag = redis.call('HGET', KEYS[1], 'etag')
-                        if (not etag and not ARGV[1]) or etag == ARGV[1] then
+                        if ((not etag or etag == '') and (not ARGV[1] or ARGV[1] == '')) or etag == ARGV[1] then
                           redis.call('DEL', KEYS[1])
                           return 0
                         else
                           return -1
                         end
                         """;
-                    response = await _db.ScriptEvaluateAsync(DeleteScript, keys: new[] { GetKey(grainId) }, values: new[] { etag }).ConfigureAwait(false);
+                    response = await _db.ScriptEvaluateAsync(DeleteScript, keys: new[] { key }, values: new[] { etag }).ConfigureAwait(false);
                     newETag = null;
                 }
                 else
@@ -221,7 +253,7 @@ namespace Orleans.Persistence
                     const string ClearScript =
                         """
                         local etag = redis.call('HGET', KEYS[1], 'etag')
-                        if (not etag and not ARGV[1]) or etag == ARGV[1] then
+                        if ((not etag or etag == '') and (not ARGV[1] or ARGV[1] == '')) or etag == ARGV[1] then
                           redis.call('HMSET', KEYS[1], 'etag', ARGV[2], 'data', '')
                           return 0
                         else
@@ -229,7 +261,7 @@ namespace Orleans.Persistence
                         end
                         """;
                     newETag = Guid.NewGuid().ToString("N");
-                    response = await _db.ScriptEvaluateAsync(ClearScript, keys: new[] { GetKey(grainId) }, values: new RedisValue[] { etag, newETag }).ConfigureAwait(false);
+                    response = await _db.ScriptEvaluateAsync(ClearScript, keys: new[] { key }, values: new RedisValue[] { etag, newETag }).ConfigureAwait(false);
                 }
 
                 if (response is not null && (int)response == -1)
@@ -238,6 +270,7 @@ namespace Orleans.Persistence
                 }
 
                 grainState.ETag = newETag;
+                grainState.State = CreateInstance<T>();
                 grainState.RecordExists = false;
             }
             catch (Exception exception) when (exception is not InconsistentStateException)
@@ -253,5 +286,7 @@ namespace Orleans.Persistence
             await _connection.CloseAsync().ConfigureAwait(false);
             _connection.Dispose();
         }
+
+        private T CreateInstance<T>() => _activatorProvider.GetActivator<T>().Create();
     }
 }

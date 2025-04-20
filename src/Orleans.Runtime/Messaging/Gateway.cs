@@ -14,7 +14,7 @@ using Orleans.Runtime.Internal;
 
 namespace Orleans.Runtime.Messaging
 {
-    internal sealed class Gateway : IConnectedClientCollection
+    internal sealed partial class Gateway : IConnectedClientCollection
     {
         // clients is the main authorative collection of all connected clients.
         // Any client currently in the system appears in this collection.
@@ -79,7 +79,7 @@ namespace Orleans.Runtime.Messaging
                 }
                 catch (Exception exception)
                 {
-                    logger.LogError(exception, "Error performing gateway maintenance");
+                    LogErrorGatewayMaintenanceError(logger, exception);
                 }
             }
         }
@@ -122,7 +122,7 @@ namespace Orleans.Runtime.Messaging
 
         internal void RecordOpenedConnection(GatewayInboundConnection connection, ClientGrainId clientId)
         {
-            logger.LogInformation((int)ErrorCode.GatewayClientOpenedSocket, "Recorded opened connection from endpoint {EndPoint}, client ID {ClientId}.", connection.RemoteEndPoint, clientId);
+            LogInformationGatewayClientOpenedSocket(logger, connection.RemoteEndPoint, clientId);
             lock (clients)
             {
                 if (clients.TryGetValue(clientId, out var clientState))
@@ -159,11 +159,7 @@ namespace Orleans.Runtime.Messaging
                 clientsCollectionVersion++;
             }
 
-            logger.LogInformation(
-                (int)ErrorCode.GatewayClientClosedSocket,
-                "Recorded closed socket from endpoint {Endpoint}, client ID {clientId}.",
-                connection.RemoteEndPoint?.ToString() ?? "null",
-                clientState.Id);
+            LogInformationGatewayClientClosedSocket(logger, connection.RemoteEndPoint?.ToString() ?? "null", clientState.Id);
         }
 
         internal SiloAddress TryToReroute(Message msg)
@@ -176,7 +172,7 @@ namespace Orleans.Runtime.Messaging
             //    connected to that gateway)
             // So, if the TargetGrain is a SystemTarget we always trust the value from Message.TargetSilo and forward
             // it to this address...
-            // EXCEPT if the value is equal to the current GatewayAdress: in this case we will return
+            // EXCEPT if the value is equal to the current GatewayAddress: in this case we will return
             // null and the local dispatcher will forward the Message to a local SystemTarget activation
             if (msg.TargetGrain.IsSystemTarget() && !IsTargetingLocalGateway(msg.TargetSilo))
             {
@@ -230,14 +226,7 @@ namespace Orleans.Runtime.Messaging
                     {
                         if (clients.TryGetValue(kv.Key, out var client) && client.ReadyToDrop())
                         {
-                            if (logger.IsEnabled(LogLevel.Information))
-                            {
-                                logger.LogInformation(
-                                    (int)ErrorCode.GatewayDroppingClient,
-                                    "Dropping client {ClientId}, {IdleDuration} after disconnect with no reconnect",
-                                    kv.Key,
-                                    client.DisconnectedSince);
-                            }
+                            LogInformationGatewayDroppingClient(logger, kv.Key, client.DisconnectedSince);
 
                             if (clients.TryRemove(kv.Key, out _))
                             {
@@ -272,7 +261,7 @@ namespace Orleans.Runtime.Messaging
                 return false;
             }
 
-            // when this Gateway receives a message from client X to client addressale object Y
+            // when this Gateway receives a message from client X to client addressable object Y
             // it needs to record the original Gateway address through which this message came from (the address of the Gateway that X is connected to)
             // it will use this Gateway to re-route the REPLY from Y back to X.
             if (msg.SendingGrain.IsClient())
@@ -281,12 +270,7 @@ namespace Orleans.Runtime.Messaging
             }
 
             msg.TargetSilo = null;
-            // Override the SendingSilo only if the sending grain is not
-            // a system target
-            if (!msg.SendingGrain.IsSystemTarget())
-            {
-                msg.SendingSilo = gatewayAddress;
-            }
+            msg.SendingSilo ??= gatewayAddress;
 
             client.Send(msg);
             return true;
@@ -344,11 +328,7 @@ namespace Orleans.Runtime.Messaging
                 var existing = Interlocked.Exchange(ref _connection, connection);
                 if (existing is not null)
                 {
-                    _gateway.logger.LogWarning(
-                        "Client {ClientId} received new connection ({NewConnection}) before the previous connection ({PreviousConnection}) had been removed",
-                        Id.GrainId,
-                        connection,
-                        existing);
+                    LogWarningGatewayClientReceivedNewConnectionBeforePreviousConnectionRemoved(_gateway.logger, Id, connection, existing);
                 }
 
                 _disconnectedSince.Reset();
@@ -377,9 +357,7 @@ namespace Orleans.Runtime.Messaging
             {
                 _pendingToSend.Enqueue(msg);
                 _signal.Signal();
-#if DEBUG
-                if (_gateway.logger.IsEnabled(LogLevel.Trace)) _gateway.logger.LogTrace("Queued message {Message} for client {TargetGrain}", msg, msg.TargetGrain);
-#endif
+                LogTraceQueuedMessage(_gateway.logger, msg, msg.TargetGrain);
             }
 
             private async Task RunMessageLoop()
@@ -407,9 +385,7 @@ namespace Orleans.Runtime.Messaging
                         {
                             if (TrySend(connection, message))
                             {
-#if DEBUG
-                                if (_gateway.logger.IsEnabled(LogLevel.Trace)) _gateway.logger.LogTrace("Sent queued message {Message} to client {ClientId}", message, Id);
-#endif
+                                LogTraceSentQueuedMessage(_gateway.logger, message, Id);
                             }
                             else
                             {
@@ -421,7 +397,7 @@ namespace Orleans.Runtime.Messaging
                     }
                     catch (Exception exception)
                     {
-                        _gateway.logger.LogWarning(exception, "Exception in message loop for client {ClientId}", Id);
+                        LogWarningGatewayClientMessageLoopException(_gateway.logger, exception, Id);
                     }
                 }
             }
@@ -464,7 +440,7 @@ namespace Orleans.Runtime.Messaging
         // (since clients are not registered in the directory and this Gateway may not be proxying for the client for whom the reply is destined).
         private class ClientsReplyRoutingCache
         {
-            // for every client: the Gateway to use to route repies back to it plus the last time that client connected via this Gateway.
+            // for every client: the Gateway to use to route replies back to it plus the last time that client connected via this Gateway.
             private readonly ConcurrentDictionary<GrainId, Tuple<SiloAddress, DateTime>> clientRoutes = new();
             private readonly TimeSpan TIME_BEFORE_ROUTE_CACHED_ENTRY_EXPIRES;
 
@@ -502,5 +478,55 @@ namespace Orleans.Runtime.Messaging
                 }
             }
         }
+        [LoggerMessage(
+            Level = LogLevel.Error,
+            Message = "Error performing gateway maintenance"
+        )]
+        private static partial void LogErrorGatewayMaintenanceError(ILogger logger, Exception exception);
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.GatewayClientOpenedSocket,
+            Level = LogLevel.Information,
+            Message = "Recorded opened connection from endpoint {EndPoint}, client ID {ClientId}."
+        )]
+        private static partial void LogInformationGatewayClientOpenedSocket(ILogger logger, EndPoint endPoint, ClientGrainId clientId);
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.GatewayClientClosedSocket,
+            Level = LogLevel.Information,
+            Message = "Recorded closed socket from endpoint {Endpoint}, client ID {ClientId}."
+        )]
+        private static partial void LogInformationGatewayClientClosedSocket(ILogger logger, string endpoint, ClientGrainId clientId);
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.GatewayDroppingClient,
+            Level = LogLevel.Information,
+            Message = "Dropping client {ClientId}, {IdleDuration} after disconnect with no reconnect"
+        )]
+        private static partial void LogInformationGatewayDroppingClient(ILogger logger, ClientGrainId clientId, TimeSpan idleDuration);
+
+        [LoggerMessage(
+            Level = LogLevel.Warning,
+            Message = "Client {ClientId} received new connection ({NewConnection}) before the previous connection ({PreviousConnection}) had been removed"
+        )]
+        private static partial void LogWarningGatewayClientReceivedNewConnectionBeforePreviousConnectionRemoved(ILogger logger, ClientGrainId clientId, GatewayInboundConnection newConnection, GatewayInboundConnection previousConnection);
+
+        [LoggerMessage(
+            Level = LogLevel.Trace,
+            Message = "Queued message {Message} for client {TargetGrain}"
+        )]
+        private static partial void LogTraceQueuedMessage(ILogger logger, object message, GrainId targetGrain);
+
+        [LoggerMessage(
+            Level = LogLevel.Trace,
+            Message = "Sent queued message {Message} to client {ClientId}"
+        )]
+        private static partial void LogTraceSentQueuedMessage(ILogger logger, object message, ClientGrainId clientId);
+
+        [LoggerMessage(
+            Level = LogLevel.Warning,
+            Message = "Exception in message loop for client {ClientId}"
+        )]
+        private static partial void LogWarningGatewayClientMessageLoopException(ILogger logger, Exception exception, ClientGrainId clientId);
     }
 }

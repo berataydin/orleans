@@ -1,6 +1,3 @@
-using Orleans;
-using System.Threading.Tasks;
-
 namespace UnitTests.GrainInterfaces
 {
     public interface IImplicitSubscriptionCounterGrain : IGrainWithGuidKey
@@ -13,4 +10,10 @@ namespace UnitTests.GrainInterfaces
 
         Task DeactivateOnEvent(bool deactivate);
     }
+
+    public interface IFastImplicitSubscriptionCounterGrain : IImplicitSubscriptionCounterGrain
+    { }
+
+    public interface ISlowImplicitSubscriptionCounterGrain : IImplicitSubscriptionCounterGrain
+    { }
 }

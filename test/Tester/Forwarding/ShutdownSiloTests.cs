@@ -1,17 +1,12 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Orleans.TestingHost;
 using TestExtensions;
 using UnitTests.GrainInterfaces;
 using Xunit;
-using Orleans.Hosting;
 using Orleans.Configuration;
 using System.Diagnostics;
-using Orleans.Runtime;
 using Microsoft.Extensions.DependencyInjection;
+using Azure.Data.Tables;
+using Azure.Identity;
 
 namespace Tester.Forwarding
 {
@@ -29,13 +24,20 @@ namespace Tester.Forwarding
                     {
                         options.DeactivationTimeout = DeactivationTimeout;
                     })
-                    .UseAzureStorageClustering(options => options.ConfigureTableServiceClient(TestDefaultConfiguration.DataConnectionString))
+                    .UseAzureStorageClustering(options => options.TableServiceClient = GetTableServiceClient())
                     .ConfigureServices(services => services.AddSingleton<PlacementStrategy, ActivationCountBasedPlacement>())
                     .Configure<ClusterMembershipOptions>(options =>
                     {
                         options.NumMissedProbesLimit = 1;
                         options.NumVotesForDeathDeclaration = 1;
                     });
+            }
+
+            private static TableServiceClient GetTableServiceClient()
+            {
+                return TestDefaultConfiguration.UseAadAuthentication
+                    ? new(TestDefaultConfiguration.TableEndpoint, TestDefaultConfiguration.TokenCredential)
+                    : new(TestDefaultConfiguration.DataConnectionString);
             }
         }
 
@@ -111,7 +113,7 @@ namespace Tester.Forwarding
 
             await Task.Delay(500);
             var stopwatch = Stopwatch.StartNew();
-            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             await HostedCluster.SecondarySilos.First().StopSiloAsync(cts.Token);
             stopwatch.Stop();
             Assert.True(stopwatch.Elapsed < TimeSpan.FromMinutes(1));

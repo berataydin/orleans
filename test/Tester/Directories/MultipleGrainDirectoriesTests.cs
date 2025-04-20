@@ -1,11 +1,7 @@
-using System;
-using System.Threading.Tasks;
-using Orleans.Hosting;
 using Orleans.Internal;
 using Orleans.TestingHost;
 using TestExtensions;
 using UnitTests.GrainInterfaces.Directories;
-using UnitTests.Grains.Directories;
 using Xunit;
 
 namespace Tester.Directories
@@ -20,8 +16,8 @@ namespace Tester.Directories
         [SkippableFact, TestCategory("Directory"), TestCategory("Functional")]
         public async Task PingGrain()
         {
-            var grainOnPrimary = await GetGrainOnPrimary().WithTimeout(TimeSpan.FromSeconds(5), "Could not get a grain on the primary silo");
-            var grainOnSecondary = await GetGrainOnSecondary().WithTimeout(TimeSpan.FromSeconds(5), "Could not get a grain on the secondary silo");
+            var grainOnPrimary = await GetGrainOnPrimary().WaitAsync(TimeSpan.FromSeconds(5));
+            var grainOnSecondary = await GetGrainOnSecondary().WaitAsync(TimeSpan.FromSeconds(5));
 
             // Setup
             var primaryCounter = await grainOnPrimary.Ping();

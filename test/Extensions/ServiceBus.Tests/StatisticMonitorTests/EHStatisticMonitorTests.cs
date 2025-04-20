@@ -1,5 +1,3 @@
-using System;
-using System.Threading.Tasks;
 using Orleans.Runtime;
 using Orleans.Streams;
 using Orleans.TestingHost;
@@ -8,10 +6,10 @@ using TestExtensions;
 using UnitTests.Grains.ProgrammaticSubscribe;
 using Xunit;
 using ServiceBus.Tests.SlowConsumingTests;
-using Orleans.Hosting;
 using Orleans.Providers.Streams.Common;
 using Orleans.Streaming.EventHubs.Testing;
 using Orleans.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace ServiceBus.Tests.MonitorTests
 {
@@ -52,7 +50,7 @@ namespace ServiceBus.Tests.MonitorTests
                     hostBuilder
                         .ConfigureServices(services =>
                         {
-                            services.AddTransientNamedService(StreamProviderName, (s, n) => SimpleStreamEventDataGenerator.CreateFactory(s));
+                            services.AddKeyedTransient(StreamProviderName, (s, n) => SimpleStreamEventDataGenerator.CreateFactory(s));
                         })
                         .AddMemoryGrainStorage("PubSubStore");
                 }
@@ -80,32 +78,32 @@ namespace ServiceBus.Tests.MonitorTests
             //configure data generator for stream and start producing
             var mgmtGrain = this.fixture.GrainFactory.GetGrain<IManagementGrain>(0);
             var randomStreamPlacementArg = new EHStreamProviderForMonitorTestsAdapterFactory.StreamRandomPlacementArg(streamId, this.seed.Next(100));
-            await mgmtGrain.SendControlCommandToProvider(typeof(PersistentStreamProvider).FullName, StreamProviderName,
+            await mgmtGrain.SendControlCommandToProvider<PersistentStreamProvider>(StreamProviderName,
                 (int)EHStreamProviderForMonitorTestsAdapterFactory.Commands.Randomly_Place_Stream_To_Queue, randomStreamPlacementArg);
 
             // let the test to run for a while to build up some streaming traffic
             await Task.Delay(timeout);
             //wait sometime after cache pressure changing, for the system to notice it and trigger cache monitor to track it
-            await mgmtGrain.SendControlCommandToProvider(typeof(PersistentStreamProvider).FullName, StreamProviderName,
+            await mgmtGrain.SendControlCommandToProvider<PersistentStreamProvider>(StreamProviderName,
                 (int)EHStreamProviderForMonitorTestsAdapterFactory.QueryCommands.ChangeCachePressure, null);
             await Task.Delay(timeout);
 
             //assert EventHubReceiverMonitor call counters
-            var receiverMonitorCounters = await mgmtGrain.SendControlCommandToProvider(typeof(PersistentStreamProvider).FullName, StreamProviderName,
+            var receiverMonitorCounters = await mgmtGrain.SendControlCommandToProvider<PersistentStreamProvider>(StreamProviderName,
                 (int)EHStreamProviderForMonitorTestsAdapterFactory.QueryCommands.GetReceiverMonitorCallCounters, null);
             foreach (var callCounter in receiverMonitorCounters)
             {
                 AssertReceiverMonitorCallCounters(callCounter as EventHubReceiverMonitorCounters);
             }
 
-            var cacheMonitorCounters = await mgmtGrain.SendControlCommandToProvider(typeof(PersistentStreamProvider).FullName, StreamProviderName,
+            var cacheMonitorCounters = await mgmtGrain.SendControlCommandToProvider<PersistentStreamProvider>(StreamProviderName,
                 (int)EHStreamProviderForMonitorTestsAdapterFactory.QueryCommands.GetCacheMonitorCallCounters, null);
             foreach (var callCounter in cacheMonitorCounters)
             {
                 AssertCacheMonitorCallCounters(callCounter as CacheMonitorCounters);
             }
 
-            var objectPoolMonitorCounters = await mgmtGrain.SendControlCommandToProvider(typeof(PersistentStreamProvider).FullName, StreamProviderName,
+            var objectPoolMonitorCounters = await mgmtGrain.SendControlCommandToProvider<PersistentStreamProvider>(StreamProviderName,
              (int)EHStreamProviderForMonitorTestsAdapterFactory.QueryCommands.GetObjectPoolMonitorCallCounters, null);
             foreach (var callCounter in objectPoolMonitorCounters)
             {
@@ -113,7 +111,7 @@ namespace ServiceBus.Tests.MonitorTests
             }
         }
 
-        private void AssertCacheMonitorCallCounters(CacheMonitorCounters totalCacheMonitorCallCounters)
+        private static void AssertCacheMonitorCallCounters(CacheMonitorCounters totalCacheMonitorCallCounters)
         {
             var c = totalCacheMonitorCallCounters;
             Assert.True(c.TrackCachePressureMonitorStatusChangeCallCounter > 0,
@@ -124,7 +122,7 @@ namespace ServiceBus.Tests.MonitorTests
             Assert.True(0 == c.TrackMessagePurgedCounter, $"Expected {nameof(c.TrackMessagePurgedCounter)} == 0, got {c.TrackMessagePurgedCounter}");
         }
 
-        private void AssertReceiverMonitorCallCounters(EventHubReceiverMonitorCounters totalReceiverMonitorCallCounters)
+        private static void AssertReceiverMonitorCallCounters(EventHubReceiverMonitorCounters totalReceiverMonitorCallCounters)
         {
             var c = totalReceiverMonitorCallCounters;
             Assert.True(ehPartitionCountPerSilo == c.TrackInitializationCallCounter, $"Expected {nameof(c.TrackInitializationCallCounter)} == {ehPartitionCountPerSilo}, got {c.TrackInitializationCallCounter}");
@@ -133,7 +131,7 @@ namespace ServiceBus.Tests.MonitorTests
             Assert.True(0 == c.TrackShutdownCallCounter, $"Expected {nameof(c.TrackShutdownCallCounter)} == 0, got {c.TrackShutdownCallCounter}");
         }
 
-        private void AssertObjectPoolMonitorCallCounters(ObjectPoolMonitorCounters totalObjectPoolMonitorCallCounters)
+        private static void AssertObjectPoolMonitorCallCounters(ObjectPoolMonitorCounters totalObjectPoolMonitorCallCounters)
         {
             var c = totalObjectPoolMonitorCallCounters;
             Assert.True(c.TrackObjectAllocatedByCacheCallCounter > 0, $"Expected {nameof(c.TrackObjectAllocatedByCacheCallCounter)} > 0, got {c.TrackObjectAllocatedByCacheCallCounter}");

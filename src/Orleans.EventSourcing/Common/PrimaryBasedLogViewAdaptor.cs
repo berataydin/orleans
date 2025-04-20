@@ -242,7 +242,7 @@ namespace Orleans.EventSourcing.Common
         /// <summary>
         /// Background worker which asynchronously sends operations to the leader
         /// </summary>
-        private BatchWorker worker;
+        private readonly BatchWorker worker;
 
 
 
@@ -729,7 +729,6 @@ namespace Orleans.EventSourcing.Common
                     if (submissionEntry.ResultPromise != null)
                         submissionEntry.ResultPromise.SetResult(false);
                 }
-                pos++;
             }
 
             if (foundFailedConditionalUpdates)

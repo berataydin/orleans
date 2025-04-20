@@ -1,8 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Orleans;
@@ -174,7 +169,7 @@ namespace NonSilo.Tests
             Assert.Throws<ArgumentNullException>(() => hostBuilder.ConfigureServices(null));
 
             var registeredFirst = new int[1];
-            
+
             var one = new MyService { Id = 1 };
             hostBuilder.ConfigureServices(
                 services =>
@@ -196,11 +191,11 @@ namespace NonSilo.Tests
             var client = host.Services.GetRequiredService<IClusterClient>();
             var services = client.ServiceProvider.GetServices<MyService>()?.ToList();
             Assert.NotNull(services);
-            
+
             // Both services should be registered.
             Assert.Equal(2, services.Count);
-            Assert.NotNull(services.FirstOrDefault(svc => svc.Id == 1));
-            Assert.NotNull(services.FirstOrDefault(svc => svc.Id == 2));
+            Assert.NotNull(services.Find(svc => svc.Id == 1));
+            Assert.NotNull(services.Find(svc => svc.Id == 2));
 
             // Service 1 should have been registered first - the pipeline order should be preserved.
             Assert.Equal(1, registeredFirst[0]);
@@ -220,6 +215,23 @@ namespace NonSilo.Tests
                         siloBuilder.UseLocalhostClustering();
                     })
                     .UseOrleansClient((ctx, clientBuilder) =>
+                    {
+                        clientBuilder.UseLocalhostClustering();
+                    });
+            });
+        }
+
+        [Fact]
+        public void ClientBuilderWithHotApplicationBuilderThrowsDuringStartupIfSiloBuildersAdded()
+        {
+            Assert.Throws<OrleansConfigurationException>(() =>
+            {
+                _ = Host.CreateApplicationBuilder()
+                    .UseOrleans(siloBuilder =>
+                    {
+                        siloBuilder.UseLocalhostClustering();
+                    })
+                    .UseOrleansClient(clientBuilder =>
                     {
                         clientBuilder.UseLocalhostClustering();
                     });

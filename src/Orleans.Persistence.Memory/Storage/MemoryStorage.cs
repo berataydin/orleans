@@ -1,5 +1,5 @@
+#nullable enable
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 using System.Threading.Tasks;
@@ -8,35 +8,26 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Orleans.Configuration;
 using Orleans.Runtime;
+using Orleans.Serialization.Serializers;
 using Orleans.Storage.Internal;
 
 namespace Orleans.Storage
 {
-
     /// <summary>
     /// This is a simple in-memory grain implementation of a storage provider.
     /// </summary>
     /// <remarks>
     /// This storage provider is ONLY intended for simple in-memory Development / Unit Test scenarios.
-    /// This class should NOT be used in Production environment, 
-    ///  because [by-design] it does not provide any resilience 
+    /// This class should NOT be used in Production environment,
+    ///  because [by-design] it does not provide any resilience
     ///  or long-term persistence capabilities.
     /// </remarks>
-    /// <example>
-    /// Example configuration for this storage provider in OrleansConfiguration.xml file:
-    /// <code>
-    /// &lt;OrleansConfiguration xmlns="urn:orleans">
-    ///   &lt;Globals>
-    ///     &lt;StorageProviders>
-    ///       &lt;Provider Type="Orleans.Storage.MemoryStorage" Name="MemoryStore" />
-    ///   &lt;/StorageProviders>
-    /// </code>
-    /// </example>
     [DebuggerDisplay("MemoryStore:{" + nameof(name) + "}")]
-    public class MemoryGrainStorage : IGrainStorage, IDisposable
+    public partial class MemoryGrainStorage : IGrainStorage, IDisposable
     {
         private Lazy<IMemoryStorageGrain>[] storageGrains;
         private readonly ILogger logger;
+        private readonly IActivatorProvider _activatorProvider;
         private readonly IGrainStorageSerializer storageSerializer;
 
         /// <summary> Name of this storage provider instance. </summary>
@@ -50,15 +41,20 @@ namespace Orleans.Storage
         /// <param name="logger">The logger.</param>
         /// <param name="grainFactory">The grain factory.</param>
         /// <param name="defaultGrainStorageSerializer">The default grain storage serializer.</param>
-        public MemoryGrainStorage(string name, MemoryGrainStorageOptions options, ILogger<MemoryGrainStorage> logger, IGrainFactory grainFactory, IGrainStorageSerializer defaultGrainStorageSerializer)
+        public MemoryGrainStorage(
+            string name,
+            MemoryGrainStorageOptions options,
+            ILogger<MemoryGrainStorage> logger,
+            IGrainFactory grainFactory,
+            IGrainStorageSerializer defaultGrainStorageSerializer,
+            IActivatorProvider activatorProvider)
         {
             this.name = name;
             this.logger = logger;
+            _activatorProvider = activatorProvider;
             this.storageSerializer = options.GrainStorageSerializer ?? defaultGrainStorageSerializer;
 
-            //Init
-            logger.LogInformation("Init: Name={Name} NumStorageGrains={NumStorageGrains}", name, options.NumStorageGrains);
-
+            LogDebugInit(name, options.NumStorageGrains);
             storageGrains = new Lazy<IMemoryStorageGrain>[options.NumStorageGrains];
             for (int i = 0; i < storageGrains.Length; i++)
             {
@@ -72,16 +68,21 @@ namespace Orleans.Storage
         {
             var key = MakeKey(grainType, grainId);
 
-            if (logger.IsEnabled(LogLevel.Trace)) logger.LogTrace("Read Keys={Keys}", key);
-
+            LogTraceRead(key);
             IMemoryStorageGrain storageGrain = GetStorageGrain(key);
             var state = await storageGrain.ReadStateAsync<ReadOnlyMemory<byte>>(key);
             if (state != null)
             {
                 var loadedState = ConvertFromStorageFormat<T>(state.State);
                 grainState.ETag = state.ETag;
-                grainState.State = loadedState ?? Activator.CreateInstance<T>();
-                grainState.RecordExists = true;
+                grainState.State = loadedState ?? CreateInstance<T>();
+                grainState.RecordExists = loadedState != null;
+            }
+            else
+            {
+                grainState.ETag = null;
+                grainState.State = CreateInstance<T>();
+                grainState.RecordExists = false;
             }
         }
 
@@ -89,7 +90,7 @@ namespace Orleans.Storage
         public virtual async Task WriteStateAsync<T>(string grainType, GrainId grainId, IGrainState<T> grainState)
         {
             var key = MakeKey(grainType, grainId);
-            if (logger.IsEnabled(LogLevel.Trace)) logger.LogTrace("Write Keys={Keys} Data={Data} Etag={Etag}", key, grainState.State, grainState.ETag);
+            LogTraceWrite(key, grainState.State!, grainState.ETag);
             IMemoryStorageGrain storageGrain = GetStorageGrain(key);
             try
             {
@@ -111,13 +112,14 @@ namespace Orleans.Storage
         public virtual async Task ClearStateAsync<T>(string grainType, GrainId grainId, IGrainState<T> grainState)
         {
             var key = MakeKey(grainType, grainId);
-            if (logger.IsEnabled(LogLevel.Trace)) logger.LogTrace("Delete Keys={Keys} Etag={Etag}", key, grainState.ETag);
+            LogTraceDelete(key, grainState.ETag);
             IMemoryStorageGrain storageGrain = GetStorageGrain(key);
             try
             {
                 await storageGrain.DeleteStateAsync<ReadOnlyMemory<byte>>(key, grainState.ETag);
                 grainState.ETag = null;
                 grainState.RecordExists = false;
+                grainState.State = CreateInstance<T>();
             }
             catch (MemoryStorageEtagMismatchException e)
             {
@@ -134,16 +136,15 @@ namespace Orleans.Storage
         }
 
         /// <inheritdoc/>
-        public void Dispose() => storageGrains = null;
+        public void Dispose() { }
 
         /// <summary>
         /// Deserialize from binary data
         /// </summary>
         /// <param name="data">The serialized stored data</param>
-        internal T ConvertFromStorageFormat<T>(ReadOnlyMemory<byte> data)
+        internal T? ConvertFromStorageFormat<T>(ReadOnlyMemory<byte> data)
         {
-
-            T dataValue = default;
+            T? dataValue = default;
             try
             {
                 dataValue = this.storageSerializer.Deserialize<T>(data);
@@ -160,8 +161,7 @@ namespace Orleans.Storage
                 {
                     sb.AppendFormat("Data Value={0} Type={1}", dataValue, dataValue.GetType());
                 }
-
-                logger.LogError(exc, "{Message}", sb.ToString());
+                LogError(sb, exc);
                 throw new AggregateException(sb.ToString(), exc);
             }
 
@@ -182,6 +182,38 @@ namespace Orleans.Storage
             // Convert to binary format
             return this.storageSerializer.Serialize<T>(grainState);
         }
+
+        private T CreateInstance<T>() => _activatorProvider.GetActivator<T>().Create();
+
+        [LoggerMessage(
+            Level = LogLevel.Debug,
+            Message = "Init: Name={Name} NumStorageGrains={NumStorageGrains}"
+        )]
+        private partial void LogDebugInit(string name, int numStorageGrains);
+
+        [LoggerMessage(
+            Level = LogLevel.Trace,
+            Message = "Read Keys={Keys}"
+        )]
+        private partial void LogTraceRead(string keys);
+
+        [LoggerMessage(
+            Level = LogLevel.Trace,
+            Message = "Write Keys={Keys} Data={Data} Etag={Etag}"
+        )]
+        private partial void LogTraceWrite(string keys, object data, string etag);
+
+        [LoggerMessage(
+            Level = LogLevel.Trace,
+            Message = "Delete Keys={Keys} Etag={Etag}"
+        )]
+        private partial void LogTraceDelete(string keys, string etag);
+
+        [LoggerMessage(
+            Level = LogLevel.Error,
+            Message = "{Message}"
+        )]
+        private partial void LogError(StringBuilder message, Exception exception);
     }
 
     /// <summary>
@@ -195,7 +227,7 @@ namespace Orleans.Storage
         /// <param name="services">The services.</param>
         /// <param name="name">The name.</param>
         /// <returns>The storage.</returns>
-        public static IGrainStorage Create(IServiceProvider services, string name)
+        public static MemoryGrainStorage Create(IServiceProvider services, string name)
         {
             return ActivatorUtilities.CreateInstance<MemoryGrainStorage>(services,
                 services.GetRequiredService<IOptionsMonitor<MemoryGrainStorageOptions>>().Get(name), name);

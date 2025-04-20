@@ -1,18 +1,11 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
-using System.Threading;
-using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using BenchmarkGrainInterfaces.Ping;
 using BenchmarkGrains.Ping;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Orleans;
+using Microsoft.Extensions.Logging;
 using Orleans.Configuration;
-using Orleans.Hosting;
-using Orleans.Runtime;
 
 namespace Benchmarks.Ping
 {
@@ -34,6 +27,17 @@ namespace Benchmarks.Ping
                 var primary = i == 0 ? null : new IPEndPoint(IPAddress.Loopback, 11111);
                 var hostBuilder = new HostBuilder().UseOrleans((ctx, siloBuilder) =>
                 {
+#pragma warning disable ORLEANSEXP001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+                    siloBuilder.AddActivationRepartitioner();
+#pragma warning restore ORLEANSEXP001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+                    siloBuilder.ConfigureLogging(l =>
+                    {
+                        l.AddConsole();
+                        l.AddFilter("Orleans.Runtime.Placement.Repartitioning", LogLevel.Debug);
+                    });
+                    siloBuilder.Configure<ActivationRepartitionerOptions>(o =>
+                    {
+                    });
                     siloBuilder.UseLocalhostClustering(
                         siloPort: 11111 + i,
                         gatewayPort: 30000 + i,
@@ -139,15 +143,28 @@ namespace Benchmarks.Ping
             if (clientHost is { } client)
             {
                 await client.StopAsync();
-                if (client is IAsyncDisposable asyncDisposable) await asyncDisposable.DisposeAsync();
-                else client.Dispose();
+                if (client is IAsyncDisposable asyncDisposable)
+                {
+                    await asyncDisposable.DisposeAsync();
+                }
+                else
+                {
+                    client.Dispose();
+                }
             }
 
             this.hosts.Reverse();
             foreach (var host in this.hosts)
             {
                 await host.StopAsync();
-                host.Dispose();
+                if (host is IAsyncDisposable asyncDisposable)
+                {
+                    await asyncDisposable.DisposeAsync();
+                }
+                else
+                {
+                    host.Dispose();
+                }
             }
         }
 

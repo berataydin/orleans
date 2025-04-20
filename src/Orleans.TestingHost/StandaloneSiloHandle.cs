@@ -82,11 +82,11 @@ namespace Orleans.TestingHost
                     {
                         if (e.Data.StartsWith(StandaloneSiloHost.SiloAddressLog, StringComparison.Ordinal))
                         {
-                            SiloAddress = Orleans.Runtime.SiloAddress.FromParsableString(e.Data.Substring(StandaloneSiloHost.SiloAddressLog.Length));
+                            SiloAddress = Orleans.Runtime.SiloAddress.FromParsableString(e.Data[StandaloneSiloHost.SiloAddressLog.Length..]);
                         }
                         else if (e.Data.StartsWith(StandaloneSiloHost.GatewayAddressLog, StringComparison.Ordinal))
                         {
-                            GatewayAddress = Orleans.Runtime.SiloAddress.FromParsableString(e.Data.Substring(StandaloneSiloHost.GatewayAddressLog.Length));
+                            GatewayAddress = Orleans.Runtime.SiloAddress.FromParsableString(e.Data[StandaloneSiloHost.GatewayAddressLog.Length..]);
                         }
                         else if (e.Data.StartsWith(StandaloneSiloHost.StartedLog, StringComparison.Ordinal))
                         {
@@ -272,7 +272,7 @@ namespace Orleans.TestingHost
         /// <inheritdoc />
         public override async Task StopSiloAsync(bool stopGracefully)
         {
-            var cancellation = new CancellationTokenSource();
+            using var cancellation = new CancellationTokenSource();
             var ct = cancellation.Token;
 
             if (!stopGracefully) cancellation.Cancel();
@@ -303,7 +303,7 @@ namespace Orleans.TestingHost
                     });
 
                     await this.Process.StandardInput.WriteLineAsync(StandaloneSiloHost.ShutdownCommand);
-                    var linkedCts = new CancellationTokenSource();
+                    using var linkedCts = new CancellationTokenSource();
                     await Task.WhenAny(_runTask, Task.Delay(TimeSpan.FromMinutes(2), linkedCts.Token));
                 }
             }

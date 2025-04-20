@@ -1,12 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Concurrency;
-using Orleans.Runtime;
 using UnitTests.GrainInterfaces;
 
 
@@ -19,8 +12,8 @@ namespace UnitTests.Grains
 
         private Guid activationGuid;
         private readonly List<Tuple<DateTime, DateTime>> calls = new List<Tuple<DateTime, DateTime>>();
-        private ILogger logger;
-        private static HashSet<Guid> allActivationIds = new HashSet<Guid>();
+        private readonly ILogger logger;
+        private static readonly HashSet<Guid> allActivationIds = new HashSet<Guid>();
 
         public StatelessWorkerGrain(ILoggerFactory loggerFactory)
         {
@@ -47,7 +40,7 @@ namespace UnitTests.Grains
             }
             DateTime start = DateTime.UtcNow;
             TaskCompletionSource<bool> resolver = new TaskCompletionSource<bool>();
-            RegisterTimer(TimerCallback, resolver, TimeSpan.FromSeconds(2), TimeSpan.FromMilliseconds(-1));
+            this.RegisterGrainTimer(TimerCallback, resolver, new() { DueTime = TimeSpan.FromSeconds(2), Period = Timeout.InfiniteTimeSpan, Interleave = true });
             return resolver.Task.ContinueWith(
                 (_) =>
                 {
@@ -63,12 +56,11 @@ namespace UnitTests.Grains
                 });
         }
 
-        private static Task TimerCallback(object state)
+        private static Task TimerCallback(TaskCompletionSource<bool> state, CancellationToken cancellationToken)
         {
-            ((TaskCompletionSource<bool>)state).SetResult(true);
+            state.SetResult(true);
             return Task.CompletedTask;
         }
-
 
         public Task<Tuple<Guid, string, List<Tuple<DateTime, DateTime>>>> GetCallStats()
         {

@@ -1,13 +1,10 @@
-using System;
-using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Orleans.Configuration;
-using Orleans.Hosting;
 using Orleans.Providers.Streams.Common;
 using Orleans.Runtime;
 using Orleans.TestingHost;
 using Tester;
+using Tester.AzureUtils;
 using TestExtensions;
 using Xunit;
 
@@ -31,7 +28,7 @@ namespace UnitTests.StreamingTests
                     .AddAzureQueueStreams(StreamTestsConstants.AZURE_QUEUE_STREAM_PROVIDER_NAME, b=>
                         b.ConfigureAzureQueue(ob => ob.Configure<IOptions<ClusterOptions>>((options, dep) =>
                            {
-                               options.ConfigureQueueServiceClient(TestDefaultConfiguration.DataConnectionString);
+                               options.ConfigureTestDefaults();
                                options.QueueNames = Enumerable.Range(0, 8).Select(num => $"{dep.Value.ClusterId}-{num}").ToList();
                            })));
 
@@ -64,14 +61,14 @@ namespace UnitTests.StreamingTests
 
             await ValidateAgentsState(StreamLifecycleOptions.RunState.AgentsStarted);
 
-            await mgmt.SendControlCommandToProvider(adapterType, adapterName, (int)PersistentStreamProviderCommand.StartAgents);
+            await mgmt.SendControlCommandToProvider<PersistentStreamProvider>(adapterName, (int)PersistentStreamProviderCommand.StartAgents);
             await ValidateAgentsState(StreamLifecycleOptions.RunState.AgentsStarted);
 
-            await mgmt.SendControlCommandToProvider(adapterType, adapterName, (int)PersistentStreamProviderCommand.StopAgents);
+            await mgmt.SendControlCommandToProvider<PersistentStreamProvider>(adapterName, (int)PersistentStreamProviderCommand.StopAgents);
             await ValidateAgentsState(StreamLifecycleOptions.RunState.AgentsStopped);
 
 
-            await mgmt.SendControlCommandToProvider(adapterType, adapterName, (int)PersistentStreamProviderCommand.StartAgents);
+            await mgmt.SendControlCommandToProvider<PersistentStreamProvider>(adapterName, (int)PersistentStreamProviderCommand.StartAgents);
             await ValidateAgentsState(StreamLifecycleOptions.RunState.AgentsStarted);
 
         }
@@ -80,7 +77,7 @@ namespace UnitTests.StreamingTests
         {
             var mgmt = this.fixture.GrainFactory.GetGrain<IManagementGrain>(0);
 
-            var states = await mgmt.SendControlCommandToProvider(adapterType, adapterName, (int)PersistentStreamProviderCommand.GetAgentsState);
+            var states = await mgmt.SendControlCommandToProvider<PersistentStreamProvider>(adapterName, (int)PersistentStreamProviderCommand.GetAgentsState);
             Assert.Equal(2, states.Length);
             foreach (var state in states)
             {
@@ -89,7 +86,7 @@ namespace UnitTests.StreamingTests
                 Assert.Equal(expectedState, providerState);
             }
 
-            var numAgents = await mgmt.SendControlCommandToProvider(adapterType, adapterName, (int)PersistentStreamProviderCommand.GetNumberRunningAgents);
+            var numAgents = await mgmt.SendControlCommandToProvider<PersistentStreamProvider>(adapterName, (int)PersistentStreamProviderCommand.GetNumberRunningAgents);
             Assert.Equal(2, numAgents.Length);
             int totalNumAgents = numAgents.Select(Convert.ToInt32).Sum();
             if (expectedState == StreamLifecycleOptions.RunState.AgentsStarted)

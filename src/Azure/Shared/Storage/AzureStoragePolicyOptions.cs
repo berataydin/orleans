@@ -1,5 +1,5 @@
 using System;
-using Azure.Core;
+using System.Threading;
 
 #if ORLEANS_CLUSTERING
 namespace Orleans.Clustering.AzureStorage
@@ -48,7 +48,7 @@ namespace Orleans.GrainDirectory.AzureStorage
 
         private static void SetIfValidTimeout(ref TimeSpan? field, TimeSpan value, string propertyName)
         {
-            if (value > TimeSpan.Zero || value.Equals(TimeSpan.FromMilliseconds(-1)))
+            if (value > TimeSpan.Zero || value.Equals(Timeout.InfiniteTimeSpan))
             {
                 field = value;
             }

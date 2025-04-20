@@ -28,7 +28,7 @@ namespace Orleans.Serialization.UnitTests
             CopyContextPool = copyContextPool;
             CodecProvider = codecProvider;
         }
-        
+
         protected TInvokable GetInvokable<TInvokable>() where TInvokable : class, IInvokable, new() => InvokablePool.Get<TInvokable>();
 
         protected ValueTask<T> InvokeAsync<T>(IInvokable body)
@@ -90,7 +90,7 @@ namespace Orleans.Serialization.UnitTests
         ValueTask OtherMethod();
     }
 
-    [GenerateMethodSerializers(typeof(MyInvokableProxyBase))]
+    [Alias("test.IGenericProxyAliasTestGrain`3"), GenerateMethodSerializers(typeof(MyInvokableProxyBase))]
     public interface IGenericProxyAliasTestGrain<T, U, V>
     {
         [Id(777)]

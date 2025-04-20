@@ -1,8 +1,4 @@
-using System;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans.Runtime;
-using Orleans.Hosting;
 using Orleans.TestingHost;
 using TestExtensions;
 using UnitTests.StreamingTests;
@@ -42,7 +38,7 @@ namespace ServiceBus.Tests.StreamingTests
                                 }));
                                 b.UseAzureTableCheckpointer(ob => ob.Configure(options =>
                                  {
-                                     options.ConfigureTableServiceClient(TestDefaultConfiguration.DataConnectionString);
+                                     options.ConfigureTestDefaults();
                                      options.PersistInterval = TimeSpan.FromSeconds(10);
                                  }));
                                 b.ConfigurePullingAgent(ob => ob.Configure(options =>

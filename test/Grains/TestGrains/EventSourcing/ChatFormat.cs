@@ -1,5 +1,3 @@
-using System;
-using System.Linq;
 using System.Xml.Linq;
 
 namespace TestGrains
@@ -40,8 +38,7 @@ namespace TestGrains
         {
             return document.GetPostsContainer()
                        .Elements("post")
-                       .Where(x => x.Attribute("id").Value == guid)
-                       .FirstOrDefault();
+                       .FirstOrDefault(x => x.Attribute("id").Value == guid);
         }
 
         public static void ReplaceText(this XElement post, string text)

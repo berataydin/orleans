@@ -1,8 +1,8 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans.Runtime;
 
 namespace Orleans.Internal
 {
@@ -11,6 +11,21 @@ namespace Orleans.Internal
     /// </summary>
     internal static class OrleansTaskExtentions
     {
+        public static ConfiguredTaskAwaitable SuppressThrowing(this ValueTask task) => task.AsTask().ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        public static ConfiguredTaskAwaitable SuppressThrowing(this Task task) => task.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+
+        public static void Ignore(this ValueTask valueTask)
+        {
+            if (valueTask.IsCompletedSuccessfully)
+            {
+                valueTask.GetAwaiter().GetResult();
+            }
+            else
+            {
+                valueTask.AsTask().Ignore();
+            }
+        }
+
         public static async Task LogException(this Task task, ILogger logger, ErrorCode errorCode, string message)
         {
             try
@@ -77,7 +92,7 @@ namespace Orleans.Internal
                 return;
             }
 
-            var timeoutCancellationTokenSource = new CancellationTokenSource();
+            using var timeoutCancellationTokenSource = new CancellationTokenSource();
             var completedTask = await Task.WhenAny(taskToComplete, Task.Delay(timeout, timeoutCancellationTokenSource.Token));
 
             // We got done before the timeout, or were able to complete before this code ran, return the result
@@ -111,7 +126,7 @@ namespace Orleans.Internal
                 return await taskToComplete;
             }
 
-            var timeoutCancellationTokenSource = new CancellationTokenSource();
+            using var timeoutCancellationTokenSource = new CancellationTokenSource();
             var completedTask = await Task.WhenAny(taskToComplete, Task.Delay(timeSpan, timeoutCancellationTokenSource.Token));
 
             // We got done before the timeout, or were able to complete before this code ran, return the result
@@ -132,13 +147,13 @@ namespace Orleans.Internal
         /// For making an uncancellable task cancellable, by ignoring its result.
         /// </summary>
         /// <param name="taskToComplete">The task to wait for unless cancelled</param>
-        /// <param name="cancellationToken">A cancellation token for cancelling the wait</param>
         /// <param name="message">Message to set in the exception</param>
+        /// <param name="cancellationToken">A cancellation token for cancelling the wait</param>
         /// <returns></returns>
         internal static async Task WithCancellation(
             this Task taskToComplete,
-            CancellationToken cancellationToken,
-            string message)
+            string message,
+            CancellationToken cancellationToken)
         {
             try
             {
@@ -203,7 +218,7 @@ namespace Orleans.Internal
         }
 
         //The rationale for GetAwaiter().GetResult() instead of .Result
-        //is presented at https://github.com/aspnet/Security/issues/59.      
+        //is presented at https://github.com/aspnet/Security/issues/59.
         internal static T GetResult<T>(this Task<T> task)
         {
             return task.GetAwaiter().GetResult();

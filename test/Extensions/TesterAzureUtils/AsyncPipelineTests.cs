@@ -1,8 +1,4 @@
-using System;
 using System.Diagnostics;
-using System.Threading;
-using System.Threading.Tasks;
-using Orleans;
 using Tester.AzureUtils.Utilities;
 using UnitTests.TestHelper;
 using Xunit;
@@ -114,37 +110,34 @@ namespace UnitTests.AsyncPrimitivesTests
             int[] pipelineSize = { 0 };
             var capacityReached = new InterlockedFlag();
 
-            Action workFunc =
-                () =>
-                {
-                    var sz = Interlocked.Increment(ref pipelineSize[0]);
-                    CheckPipelineState(sz, pipelineCapacity, capacityReached);
-                    Task.Delay(delayLength).Wait();
-                    Interlocked.Decrement(ref pipelineSize[0]);
-                    Interlocked.Increment(ref tasksCompleted);
-                };
+            void workFunc()
+            {
+                var sz = Interlocked.Increment(ref pipelineSize[0]);
+                CheckPipelineState(sz, pipelineCapacity, capacityReached);
+                Task.Delay(delayLength).Wait();
+                Interlocked.Decrement(ref pipelineSize[0]);
+                Interlocked.Increment(ref tasksCompleted);
+            }
 
-            Action workerFunc =
-                () =>
+            void workerFunc()
+            {
+                for (var j = 0; j < loopCount; j++)
                 {
-                    for (var j = 0; j < loopCount; j++)
-                    {
-                        Task task = new Task(workFunc);
-                        pipeline.Add(task, whiteBox: null);
-                        task.Start();
-                    }
-                };
+                    Task task = new Task(workFunc);
+                    pipeline.Add(task, whiteBox: null);
+                    task.Start();
+                }
+            }
 
-            Func<Task> monitorFunc =
-                async () =>
+            async Task monitorFunc()
+            {
+                var delay = TimeSpan.FromSeconds(5);
+                while (tasksCompleted < expectedTasksCompleted)
                 {
-                    var delay = TimeSpan.FromSeconds(5);
-                    while (tasksCompleted < expectedTasksCompleted)
-                    {
-                        output.WriteLine("test in progress: tasksCompleted = {0}.", tasksCompleted);
-                        await Task.Delay(delay);
-                    }
-                };
+                    output.WriteLine("test in progress: tasksCompleted = {0}.", tasksCompleted);
+                    await Task.Delay(delay);
+                }
+            }
 
             var workers = new Task[workerCount];
             var stopwatch = Stopwatch.StartNew();
@@ -169,14 +162,14 @@ namespace UnitTests.AsyncPrimitivesTests
 
             Assert.True(capacityReached.IsSet, "Pipeline capacity not reached; the delay length probably is too short to be useful.");
             Assert.True(
-                actualSec >= minTimeSec, 
+                actualSec >= minTimeSec,
                 string.Format("The unit test completed too early ({0} sec < {1} sec).", actualSec, minTimeSec));
             Assert.True(
-                actualSec <= maxTimeSec, 
+                actualSec <= maxTimeSec,
                 string.Format("The unit test completed too late ({0} sec > {1} sec).", actualSec, maxTimeSec));
         }
 
-        private void CheckPipelineState(int size, int capacity, InterlockedFlag capacityReached)
+        private static void CheckPipelineState(int size, int capacity, InterlockedFlag capacityReached)
         {
             Assert.True(size >= 0);
             Assert.True(capacity > 0);

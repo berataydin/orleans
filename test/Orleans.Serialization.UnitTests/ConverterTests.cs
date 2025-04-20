@@ -1,9 +1,7 @@
 using System;
-using Microsoft.Extensions.DependencyInjection;
 using Orleans.Serialization.Cloning;
 using Orleans.Serialization.Codecs;
 using Orleans.Serialization.TestKit;
-using Xunit;
 using Xunit.Abstractions;
 
 namespace Orleans.Serialization.UnitTests;
@@ -116,4 +114,16 @@ public class DerivedConverterCopierTests : CopierTester<DerivedFromMyForeignLibr
     protected override DerivedFromMyForeignLibraryType CreateValue() => new(658, 12, "hi", DateTimeOffset.Now);
     protected override bool Equals(DerivedFromMyForeignLibraryType left, DerivedFromMyForeignLibraryType right) => ReferenceEquals(left, right) || left.Equals(right);
     protected override DerivedFromMyForeignLibraryType[] TestValues => new DerivedFromMyForeignLibraryType[] { null, CreateValue() };
+}
+
+
+public class CombinedConverterCopierTests : CopierTester<MyFirstForeignLibraryType, IDeepCopier<MyFirstForeignLibraryType>>
+{
+    public CombinedConverterCopierTests(ITestOutputHelper output) : base(output)
+    {
+    }
+
+    protected override MyFirstForeignLibraryType CreateValue() => new() { Num = 12, String = "hi", DateTimeOffset = DateTimeOffset.Now };
+    protected override bool Equals(MyFirstForeignLibraryType left, MyFirstForeignLibraryType right) => left.Equals(right);
+    protected override MyFirstForeignLibraryType[] TestValues => new MyFirstForeignLibraryType[] { CreateValue() };
 }

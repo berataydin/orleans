@@ -1,11 +1,7 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Orleans;
 using Orleans.Configuration;
 using Xunit;
 
@@ -81,6 +77,7 @@ namespace Tester
             services.AddSingleton<OptionsLogger, TestOptionsLogger>();
             services.Configure<TestOptionsWithSecrets>(options => {
                 options.Data = "Hello";
+                // [SuppressMessage("Microsoft.Security", "CS002:SecretInNextLine", Justification="Not a secret")]
                 options.Password = "v3ryS3cur3!!!";
                 options.SomeConnectionString = "DefaultEndpointsProtocol=https;AccountName=someAccount;AccountKey=someKey;EndpointSuffix=core.windows.net";
             });
@@ -385,7 +382,7 @@ namespace Tester
             Assert.Equal(expected.ToString(), actual.ToString());
         }
 
-        private TestLoggerFactory BuildOptionsExpectedResult()
+        private static TestLoggerFactory BuildOptionsExpectedResult()
         {
             var services = new ServiceCollection();
             var testOptions = new TestOptions
@@ -399,7 +396,7 @@ namespace Tester
             return expected;
         }
 
-        private TestLoggerFactory BuildNamedOptionsExpectedResult()
+        private static TestLoggerFactory BuildNamedOptionsExpectedResult()
         {
             var services = new ServiceCollection();
             IOptionFormatter[] formatters = Enumerable
@@ -443,7 +440,7 @@ namespace Tester
         {
             public string Name { get; private set; }
 
-            private TestOptions options;
+            private readonly TestOptions options;
             public TestOptionsFormatter2(IOptions<TestOptions> options)
             {
                 this.options = options.Value;
@@ -486,7 +483,7 @@ namespace Tester
         {
             public string Name { get; private set; }
 
-            private TestOptions options;
+            private readonly TestOptions options;
             public TestOptionsFormatter(IOptions<TestOptions> options)
             {
                 this.options = options.Value;

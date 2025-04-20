@@ -69,6 +69,11 @@ namespace Orleans.Metadata
         public const string PlacementStrategy = "placement-strategy";
 
         /// <summary>
+        /// The name of the placement strategy for grains of this type.
+        /// </summary>
+        public const string PlacementFilter = "placement-filter";
+
+        /// <summary>
         /// The directory policy for grains of this type.
         /// </summary>
         public const string GrainDirectory = "directory-policy";
@@ -162,6 +167,11 @@ namespace Orleans.Metadata
         /// Specifies the name of a method used to determine if a request can interleave other requests.
         /// </summary>
         public const string MayInterleavePredicate = "may-interleave-predicate";
+
+        /// <summary>
+        /// Whether a grain can be migrated by active-rebalancing or not.
+        /// </summary>
+        public const string Immovable = "immovable";
     }
 
     /// <summary>

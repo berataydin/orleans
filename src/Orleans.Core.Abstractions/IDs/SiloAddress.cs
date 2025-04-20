@@ -137,20 +137,20 @@ namespace Orleans.Runtime
                 size = Encoding.UTF8.GetBytes(addr, buf);
 
                 buf[size++] = (byte)':';
-                var success = Utf8Formatter.TryFormat(Endpoint.Port, buf.Slice(size), out len);
+                var success = Utf8Formatter.TryFormat(Endpoint.Port, buf[size..], out len);
                 Debug.Assert(success);
                 Debug.Assert(len > 0);
                 Debug.Assert(len <= 11);
                 size += len;
 
                 buf[size++] = (byte)SEPARATOR;
-                success = Utf8Formatter.TryFormat(Generation, buf.Slice(size), out len);
+                success = Utf8Formatter.TryFormat(Generation, buf[size..], out len);
                 Debug.Assert(success);
                 Debug.Assert(len > 0);
                 Debug.Assert(len <= 11);
                 size += len;
 
-                utf8 = buf.Slice(0, size).ToArray();
+                utf8 = buf[..size].ToArray();
             }
 
             return utf8;
@@ -193,7 +193,7 @@ namespace Orleans.Runtime
             if (atSign < 0) ThrowInvalidUtf8SiloAddress(addr);
 
             // IPEndpoint is the host, then ':', then the port
-            var endpointSlice = addr.Slice(0, atSign);
+            var endpointSlice = addr[..atSign];
             int lastColon = endpointSlice.LastIndexOf((byte)':');
             if (lastColon < 0) ThrowInvalidUtf8SiloAddress(addr);
 
@@ -205,11 +205,11 @@ namespace Orleans.Runtime
             if (!IPAddress.TryParse(hostString, out var host))
                 ThrowInvalidUtf8SiloAddress(addr);
 
-            var portSlice = endpointSlice.Slice(lastColon + 1);
+            var portSlice = endpointSlice[(lastColon + 1)..];
             if (!Utf8Parser.TryParse(portSlice, out int port, out len) || len < portSlice.Length)
                 ThrowInvalidUtf8SiloAddress(addr);
 
-            var genSlice = addr.Slice(atSign + 1);
+            var genSlice = addr[(atSign + 1)..];
             if (!Utf8Parser.TryParse(genSlice, out int generation, out len) || len < genSlice.Length)
                 ThrowInvalidUtf8SiloAddress(addr);
 
@@ -266,9 +266,26 @@ namespace Orleans.Runtime
         /// <returns>Consistent hash value for this silo address.</returns>
         public int GetConsistentHashCode() => hashCodeSet ? hashCode : CalculateConsistentHashCode();
 
+        /// <summary>Returns a consistent hash value for this silo address.</summary>
+        /// <returns>Consistent hash value for this silo address.</returns>
+        internal int GetConsistentHashCode(int seed)
+        {
+            var tmp = (0, 0L, 0L, 0L); // avoid stackalloc overhead by using a fixed size buffer
+            var buf = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref tmp, 1))[..28];
+
+            Endpoint.Address.TryWriteBytes(buf, out var len);
+            Debug.Assert(len is 4 or 16);
+
+            BinaryPrimitives.WriteInt32LittleEndian(buf[16..], Endpoint.Port);
+            BinaryPrimitives.WriteInt32LittleEndian(buf[20..], Generation);
+            BinaryPrimitives.WriteInt32LittleEndian(buf[24..], seed);
+
+            return (int)StableHash.ComputeHash(buf);
+        }
+
         private int CalculateConsistentHashCode()
         {
-            Unsafe.SkipInit(out (long, long, long) tmp); // avoid stackalloc overhead by using a fixed size buffer
+            var tmp = (0L, 0L, 0L); // avoid stackalloc overhead by using a fixed size buffer
             var buf = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref tmp, 1))[..24];
 
             Endpoint.Address.TryWriteBytes(buf, out var len);
@@ -293,7 +310,12 @@ namespace Orleans.Runtime
         /// </summary>
         /// <param name="numHashes">The number of hash codes to return.</param>
         /// <returns>A collection of uniform hash codes variants for this instance.</returns>
-        public uint[] GetUniformHashCodes(int numHashes) => uniformHashCache ??= GetUniformHashCodesImpl(numHashes);
+        public uint[] GetUniformHashCodes(int numHashes)
+        {
+            var cache = uniformHashCache;
+            if (cache is not null && cache.Length == numHashes) return cache;
+            return uniformHashCache = GetUniformHashCodesImpl(numHashes);
+        }
 
         private uint[] GetUniformHashCodesImpl(int numHashes)
         {
@@ -304,9 +326,9 @@ namespace Orleans.Runtime
             if (address.AddressFamily == AddressFamily.InterNetwork) // IPv4
             {
 #pragma warning disable CS0618 // Type or member is obsolete
-                BinaryPrimitives.WriteInt32LittleEndian(bytes.Slice(12), (int)address.Address);
+                BinaryPrimitives.WriteInt32LittleEndian(bytes[12..], (int)address.Address);
 #pragma warning restore CS0618
-                bytes.Slice(0, 12).Clear();
+                bytes[..12].Clear();
             }
             else // IPv6
             {
@@ -315,18 +337,19 @@ namespace Orleans.Runtime
             }
             var offset = 16;
             // Port
-            BinaryPrimitives.WriteInt32LittleEndian(bytes.Slice(offset), Endpoint.Port);
+            BinaryPrimitives.WriteInt32LittleEndian(bytes[offset..], Endpoint.Port);
             offset += sizeof(int);
             // Generation
-            BinaryPrimitives.WriteInt32LittleEndian(bytes.Slice(offset), Generation);
+            BinaryPrimitives.WriteInt32LittleEndian(bytes[offset..], Generation);
             offset += sizeof(int);
 
             var hashes = new uint[numHashes];
             for (int extraBit = 0; extraBit < numHashes; extraBit++)
             {
-                BinaryPrimitives.WriteInt32LittleEndian(bytes.Slice(offset), extraBit);
+                BinaryPrimitives.WriteInt32LittleEndian(bytes[offset..], extraBit);
                 hashes[extraBit] = StableHash.ComputeHash(bytes);
             }
+
             return hashes;
         }
 

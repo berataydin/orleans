@@ -1,22 +1,9 @@
-using System;
 using Microsoft.Extensions.Configuration;
-using Orleans.Hosting;
-using Orleans;
-using Orleans.Configuration;
 using Orleans.TestingHost;
-using ServiceBus.Tests.TestStreamProviders.EventHub;
 using TestExtensions;
 using Xunit.Abstractions;
-using Orleans.Streams;
 using Orleans.Streaming.EventHubs;
 using Tester;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Orleans.Serialization;
-using Orleans.Providers.Streams.Common;
-using System.Collections.Generic;
-using Xunit;
-using System.Threading.Tasks;
-using UnitTests.GrainInterfaces;
 using Microsoft.Extensions.DependencyInjection;
 using Tester.StreamingTests;
 
@@ -59,11 +46,11 @@ namespace ServiceBus.Tests.StreamingTests
                         }));
                         b.ConfigureEventHub(ob => ob.Configure(options =>
                         {
-                            options.ConfigureEventHubConnection(TestDefaultConfiguration.EventHubConnectionString, EHPath, EHConsumerGroup);
+                            options.ConfigureTestDefaults(EHPath, EHConsumerGroup);
                         }));
                         b.UseAzureTableCheckpointer(ob => ob.Configure(options =>
                         {
-                            options.ConfigureTableServiceClient(TestDefaultConfiguration.DataConnectionString);
+                            options.ConfigureTestDefaults();
                             options.PersistInterval = TimeSpan.FromSeconds(10);
                         }));
                         b.UseDataAdapter((sp, n) => ActivatorUtilities.CreateInstance<EventHubDataAdapter>(sp));
@@ -81,7 +68,7 @@ namespace ServiceBus.Tests.StreamingTests
                     {
                         b.ConfigureEventHub(ob => ob.Configure(options =>
                         {
-                            options.ConfigureEventHubConnection(TestDefaultConfiguration.EventHubConnectionString, EHPath, EHConsumerGroup);
+                            options.ConfigureTestDefaults(EHPath, EHConsumerGroup);
                         }));
                         b.UseDataAdapter((sp, n) => ActivatorUtilities.CreateInstance<EventHubDataAdapter>(sp));
                     });

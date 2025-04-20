@@ -1,6 +1,7 @@
 using Azure;
 using Azure.Core;
 using Azure.Messaging.EventHubs;
+using Microsoft.Extensions.DependencyInjection;
 using Orleans.Runtime;
 using Orleans.Streams;
 using System;
@@ -147,7 +148,7 @@ namespace Orleans.Configuration
             CreateConnection = createConnection ?? throw new ArgumentNullException(nameof(createConnection));
         }
 
-        private void ValidateValues(string eventHubName, string consumerGroup)
+        private static void ValidateValues(string eventHubName, string consumerGroup)
         {
             if (string.IsNullOrWhiteSpace(eventHubName))
             {
@@ -192,7 +193,7 @@ namespace Orleans.Configuration
     public class StreamCheckpointerConfigurationValidator : IConfigurationValidator
     {
         private readonly IServiceProvider services;
-        private string name;
+        private readonly string name;
         public StreamCheckpointerConfigurationValidator(IServiceProvider services, string name)
         {
             this.services = services;
@@ -200,7 +201,7 @@ namespace Orleans.Configuration
         }
         public void ValidateConfiguration()
         {
-            var checkpointerFactory = services.GetServiceByName<IStreamQueueCheckpointerFactory>(this.name);
+            var checkpointerFactory = services.GetKeyedService<IStreamQueueCheckpointerFactory>(this.name);
             if (checkpointerFactory == null)
                 throw new OrleansConfigurationException($"No IStreamQueueCheckpointer is configured with PersistentStreamProvider {this.name}. Please configure one.");
         }
@@ -216,7 +217,7 @@ namespace Orleans.Configuration
         /// In cases where no checkpoint is found, this indicates if service should read from the most recent data, or from the beginning of a partition.
         /// </summary>
         public bool StartFromNow { get; set; } = DEFAULT_START_FROM_NOW;
-        public const bool DEFAULT_START_FROM_NOW = true;
+        private const bool DEFAULT_START_FROM_NOW = true;
     }
 
     public class EventHubStreamCachePressureOptions
@@ -236,7 +237,6 @@ namespace Orleans.Configuration
         /// User can turn it off by setting this value to null
         /// </summary>
         public double? AveragingCachePressureMonitorFlowControlThreshold { get; set; } = DEFAULT_AVERAGING_CACHE_PRESSURE_MONITORING_THRESHOLD;
-        public const double AVERAGING_CACHE_PRESSURE_MONITORING_OFF = 1.0;
-        public const double DEFAULT_AVERAGING_CACHE_PRESSURE_MONITORING_THRESHOLD = 1.0 / 3.0;
+        internal const double DEFAULT_AVERAGING_CACHE_PRESSURE_MONITORING_THRESHOLD = 1.0 / 3.0;
     }
 }

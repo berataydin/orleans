@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using Orleans.Streams;
 using Xunit;
 
@@ -147,7 +144,7 @@ namespace UnitTests.OrleansRuntime.Streams
             }
         }
 
-        private void ValidateBalance(List<int> buckets, List<int> resources, Dictionary<int, List<int>> balancerResults, int idealBalance)
+        private static void ValidateBalance(List<int> buckets, List<int> resources, Dictionary<int, List<int>> balancerResults, int idealBalance)
         {
             var resultBuckets = new List<int>();
             var resultResources = new List<int>();

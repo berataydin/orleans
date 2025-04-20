@@ -1,15 +1,14 @@
 using System;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
-using System.Runtime.Serialization;
 
 namespace Orleans.Serialization.Activators
 {
-    internal sealed class DefaultActivator<T> : IActivator<T> where T : class
+    internal abstract class DefaultActivator<T> : IActivator<T>
     {
         private static readonly Func<T> DefaultConstructorFunction = Init();
-        private readonly Func<T> _constructor = DefaultConstructorFunction;
-        private readonly Type _type = typeof(T);
+        protected readonly Func<T> Constructor = DefaultConstructorFunction;
+        protected readonly Type Type = typeof(T);
 
         private static Func<T> Init()
         {
@@ -24,6 +23,22 @@ namespace Orleans.Serialization.Activators
             return (Func<T>)method.CreateDelegate(typeof(Func<T>));
         }
 
-        public T Create() => _constructor is { } ctor ? ctor() : Unsafe.As<T>(FormatterServices.GetUninitializedObject(_type));
+        public abstract T Create();
+    }
+
+    internal sealed class DefaultReferenceTypeActivator<T> : DefaultActivator<T> where T : class
+    {
+        public override T Create()
+            => Constructor is { } ctor
+                ? ctor()
+                : Unsafe.As<T>(RuntimeHelpers.GetUninitializedObject(Type));
+    }
+
+    internal sealed class DefaultValueTypeActivator<T> : DefaultActivator<T> where T : struct
+    {
+        public override T Create()
+            => Constructor is { } ctor
+                ? ctor()
+                : (T)RuntimeHelpers.GetUninitializedObject(Type);
     }
 }

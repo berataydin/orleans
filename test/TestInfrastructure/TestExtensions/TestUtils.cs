@@ -1,9 +1,5 @@
-using System;
 using System.Diagnostics;
 using System.Net;
-using System.Threading;
-using System.Threading.Tasks;
-using Orleans;
 using Orleans.Runtime;
 using Orleans.TestingHost.Utils;
 using Xunit;
@@ -43,7 +39,8 @@ namespace Tester
 
         public static void CheckForEventHub()
         {
-            if (string.IsNullOrWhiteSpace(EventHubConnectionString))
+            if ((UseAadAuthentication && (EventHubFullyQualifiedNamespace == null)) ||
+                (!UseAadAuthentication && string.IsNullOrWhiteSpace(EventHubConnectionString)))
             {
                 throw new SkipException("No connection string found. Skipping");
             }
@@ -82,14 +79,14 @@ namespace Tester
             return multiple > 1.0 ? multiple : 1.0;
         }
 
-        public static TimeSpan TimeRun(int numIterations, TimeSpan baseline, string what, Action action)
+        public static async Task<TimeSpan> TimeRunAsync(int numIterations, TimeSpan baseline, string what, Func<Task> action)
         {
             var stopwatch = new Stopwatch();
 
             long startMem = GC.GetTotalMemory(true);
             stopwatch.Start();
 
-            action();
+            await action();
 
             stopwatch.Stop();
             long stopMem = GC.GetTotalMemory(false);
@@ -100,7 +97,7 @@ namespace Tester
             if (baseline > TimeSpan.Zero)
             {
                 double delta = (duration - baseline).TotalMilliseconds / baseline.TotalMilliseconds;
-                timeDeltaStr = String.Format("-- Change = {0}%", 100.0 * delta);
+                timeDeltaStr = string.Format("-- Change = {0}%", 100.0 * delta);
             }
             Console.WriteLine("Time for {0} loops doing {1} = {2} {3} Memory used={4}", numIterations, what, duration, timeDeltaStr, memUsed);
             return duration;
@@ -114,7 +111,7 @@ namespace Tester
             ServicePointManager.UseNagleAlgorithm = false;
         }
 
-        public static async Task<int> GetActivationCount(IGrainFactory grainFactory, string fullTypeName)
+        public static async Task<int> GetActivationCount(IGrainFactory grainFactory, string grainTypeName)
         {
             int result = 0;
 
@@ -122,8 +119,10 @@ namespace Tester
             SimpleGrainStatistic[] stats = await mgmtGrain.GetSimpleGrainStatistics();
             foreach (var stat in stats)
             {
-                if (stat.GrainType == fullTypeName)
+                if (string.Equals(stat.GrainType, grainTypeName, StringComparison.Ordinal))
+                {
                     result += stat.ActivationCount;
+                }
             }
             return result;
         }

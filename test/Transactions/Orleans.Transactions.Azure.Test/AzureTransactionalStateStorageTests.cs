@@ -1,14 +1,11 @@
-using System;
-using System.Threading.Tasks;
-using Azure.Core.Pipeline;
 using Azure.Data.Tables;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Orleans.Runtime;
 using Orleans.Transactions.Abstractions;
 using Orleans.Transactions.AzureStorage;
 using Orleans.Transactions.AzureStorage.Tests;
 using Orleans.Transactions.TestKit.xUnit;
+using Tester.AzureUtils;
 using TestExtensions;
 using Xunit;
 using Xunit.Abstractions;
@@ -66,12 +63,12 @@ namespace Orleans.Transactions.Azure.Tests
         {
             try
             {
-                var creationClient = new TableServiceClient(TestDefaultConfiguration.DataConnectionString);
+                var creationClient = AzureStorageOperationOptionsExtensions.GetTableServiceClient();
                 return creationClient;
             }
             catch (Exception exc)
             {
-                logger.LogError("Error creating CloudTableCreationClient.", exc);
+                logger.LogError(exc, "Error creating CloudTableCreationClient");
                 throw;
             }
         }

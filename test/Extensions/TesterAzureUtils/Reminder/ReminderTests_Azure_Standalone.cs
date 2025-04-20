@@ -1,9 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Orleans;
 using Orleans.Runtime;
 using Orleans.Runtime.ReminderService;
 using TestExtensions;
@@ -51,7 +45,7 @@ namespace Tester.AzureUtils.TimerTests
             storageOptions.Value.ConfigureTestDefaults();
 
             IReminderTable table = new AzureBasedReminderTable(this.loggerFactory, clusterOptions, storageOptions);
-            await table.Init();
+            await table.StartAsync();
 
             await TestTableInsertRate(table, 10);
             await TestTableInsertRate(table, 500);
@@ -65,7 +59,7 @@ namespace Tester.AzureUtils.TimerTests
             var storageOptions = Options.Create(new AzureTableReminderStorageOptions());
             storageOptions.Value.ConfigureTestDefaults();
             IReminderTable table = new AzureBasedReminderTable(this.loggerFactory, clusterOptions, storageOptions);
-            await table.Init();
+            await table.StartAsync();
 
             ReminderEntry[] rows = (await GetAllRows(table)).ToArray();
             Assert.Empty(rows); // "The reminder table (sid={0}, did={1}) was not empty.", ServiceId, clusterId);
@@ -116,7 +110,7 @@ namespace Tester.AzureUtils.TimerTests
                     this.log.LogInformation("Started {Capture}", capture);
                 }
                 this.log.LogInformation("Started all, now waiting...");
-                await Task.WhenAll(promises).WithTimeout(TimeSpan.FromSeconds(500));
+                await Task.WhenAll(promises).WaitAsync(TimeSpan.FromSeconds(500));
             }
             catch (Exception exc)
             {
@@ -142,12 +136,12 @@ namespace Tester.AzureUtils.TimerTests
             };
         }
 
-        private string NewClusterId()
+        private static string NewClusterId()
         {
             return string.Format("ReminderTest.{0}", Guid.NewGuid());
         }
 
-        private async Task<IEnumerable<ReminderEntry>> GetAllRows(IReminderTable table)
+        private static async Task<IEnumerable<ReminderEntry>> GetAllRows(IReminderTable table)
         {
             ReminderTableData data = await table.ReadRows(0, 0xffffffff);
             return data.Reminders;

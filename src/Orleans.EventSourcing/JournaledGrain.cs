@@ -9,8 +9,8 @@ namespace Orleans.EventSourcing
     /// <summary>
     /// A base class for log-consistent grains using standard event-sourcing terminology.
     /// All operations are reentrancy-safe.
-    /// <typeparam name="TGrainState">The type for the grain state, i.e. the aggregate view of the event log.</typeparam>
     /// </summary>
+    /// <typeparam name="TGrainState">The type for the grain state, i.e. the aggregate view of the event log.</typeparam>
     public abstract class JournaledGrain<TGrainState> : JournaledGrain<TGrainState, object>
         where TGrainState : class, new()
     {
@@ -23,9 +23,9 @@ namespace Orleans.EventSourcing
     /// <summary>
     /// A base class for log-consistent grains using standard event-sourcing terminology.
     /// All operations are reentrancy-safe.
+    /// </summary>
     /// <typeparam name="TGrainState">The type for the grain state, i.e. the aggregate view of the event log.</typeparam>
     /// <typeparam name="TEventBase">The common base class for the events</typeparam>
-    /// </summary>
     public abstract class JournaledGrain<TGrainState,TEventBase> :
         LogConsistentGrain<TGrainState>,
         ILogConsistencyProtocolParticipant,
@@ -45,7 +45,7 @@ namespace Orleans.EventSourcing
         protected virtual void RaiseEvent<TEvent>(TEvent @event) 
             where TEvent : TEventBase
         {
-            if (@event == null) throw new ArgumentNullException("event");
+            if (@event == null) throw new ArgumentNullException(nameof(@event));
 
             LogViewAdaptor.Submit(@event);
         }
@@ -57,7 +57,7 @@ namespace Orleans.EventSourcing
         protected virtual void RaiseEvents<TEvent>(IEnumerable<TEvent> events) 
             where TEvent : TEventBase
         {
-            if (events == null) throw new ArgumentNullException("events");
+            if (events == null) throw new ArgumentNullException(nameof(events));
 
             LogViewAdaptor.SubmitRange((IEnumerable<TEventBase>) events);
         }
@@ -71,7 +71,7 @@ namespace Orleans.EventSourcing
         protected virtual Task<bool> RaiseConditionalEvent<TEvent>(TEvent @event)
             where TEvent : TEventBase
         {
-            if (@event == null) throw new ArgumentNullException("event");
+            if (@event == null) throw new ArgumentNullException(nameof(@event));
 
             return LogViewAdaptor.TryAppend(@event);
         }
@@ -85,7 +85,7 @@ namespace Orleans.EventSourcing
         protected virtual Task<bool> RaiseConditionalEvents<TEvent>(IEnumerable<TEvent> events)
             where TEvent : TEventBase
         {
-            if (events == null) throw new ArgumentNullException("events");
+            if (events == null) throw new ArgumentNullException(nameof(events));
             return LogViewAdaptor.TryAppendRange((IEnumerable<TEventBase>) events);
         }
 

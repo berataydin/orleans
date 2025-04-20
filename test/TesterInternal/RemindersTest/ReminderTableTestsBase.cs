@@ -1,8 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Orleans;
 using Orleans.Runtime;
 using TestExtensions;
 using UnitTests.MembershipTests;
@@ -11,7 +6,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Orleans.Configuration;
 using Orleans.TestingHost.Utils;
-using Orleans.Internal;
 
 namespace UnitTests.RemindersTest
 {
@@ -47,7 +41,8 @@ namespace UnitTests.RemindersTest
 
         public virtual async Task InitializeAsync()
         {
-            await this.remindersTable.Init().WithTimeout(TimeSpan.FromMinutes(1));
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+            await this.remindersTable.StartAsync(cancellation.Token);
         }
 
         public virtual async Task DisposeAsync()

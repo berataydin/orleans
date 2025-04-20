@@ -1,8 +1,5 @@
-using System;
-using System.Collections.Generic;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
-using Orleans.Hosting;
 using Orleans.TestingHost;
 using Orleans.Tests.SqlUtils;
 using TestExtensions;
@@ -19,23 +16,26 @@ namespace Tester.AdoNet.Persistence
         public const string TestDatabaseName = "OrleansTest_MySql_Storage";
         public const string AdoInvariant = AdoNetInvariants.InvariantNameMySql;
         public const string ConnectionStringKey = "AdoNetConnectionString";
-        public static readonly Guid ServiceId = Guid.NewGuid();
 
         public class Fixture : BaseTestClusterFixture
         {
+            protected override void CheckPreconditionsOrThrow()
+            {
+                if (string.IsNullOrEmpty(TestDefaultConfiguration.MySqlConnectionString))
+                {
+                    throw new SkipException("MySQL connection string is not specified.");
+                }
+            }
+
             protected override void ConfigureTestCluster(TestClusterBuilder builder)
             {
-                builder.Options.InitialSilosCount = 4;
-                builder.Options.UseTestClusterMembership = false;
                 var relationalStorage = RelationalStorageForTesting.SetupInstance(AdoInvariant, TestDatabaseName).Result;
                 builder.ConfigureHostConfiguration(configBuilder => configBuilder.AddInMemoryCollection(
                     new Dictionary<string, string>
                     {
                         {ConnectionStringKey, relationalStorage.CurrentConnectionString}
                     }));
-                builder.Options.ServiceId = ServiceId.ToString();
                 builder.AddSiloBuilderConfigurator<MySiloBuilderConfigurator>();
-                builder.AddClientBuilderConfigurator<GatewayConnectionTests.ClientBuilderConfigurator>();
             }
 
             private class MySiloBuilderConfigurator : IHostConfigurator
@@ -46,14 +46,9 @@ namespace Tester.AdoNet.Persistence
                     hostBuilder.UseOrleans((ctx, siloBuilder) =>
                     {
                         siloBuilder
-                            .UseAdoNetClustering(options =>
-                            {
-                                options.ConnectionString = connectionString;
-                                options.Invariant = AdoInvariant;
-                            })
                             .AddAdoNetGrainStorage("GrainStorageForTest", options =>
                             {
-                                options.ConnectionString = (string)connectionString;
+                                options.ConnectionString = connectionString;
                                 options.Invariant = AdoInvariant;
                             })
                             .AddMemoryGrainStorage("MemoryStore");
@@ -62,12 +57,10 @@ namespace Tester.AdoNet.Persistence
             }
         }
 
-        private Fixture fixture;
-
         public PersistenceGrainTests_MySql(ITestOutputHelper output, Fixture fixture) : base(output, fixture)
         {
-            this.fixture = fixture;
-            this.fixture.EnsurePreconditionsMet();
+            DistinguishesGenericGrainTypeParameters = false;
+            fixture.EnsurePreconditionsMet();
         }
     }
 }

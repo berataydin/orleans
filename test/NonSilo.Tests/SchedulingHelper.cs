@@ -1,4 +1,3 @@
-using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,6 +13,8 @@ namespace UnitTests.TesterInternal
             IGrainContext context,
             ILoggerFactory loggerFactory)
         {
+            ArgumentNullException.ThrowIfNull(context);
+            ArgumentNullException.ThrowIfNull(loggerFactory);
             var services = new ServiceCollection();
             services.AddOptions();
             services.AddLogging();

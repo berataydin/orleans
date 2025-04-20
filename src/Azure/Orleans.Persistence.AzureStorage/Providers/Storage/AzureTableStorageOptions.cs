@@ -1,7 +1,4 @@
-using System;
-using Newtonsoft.Json;
 using Orleans.Persistence.AzureStorage;
-using Orleans.Runtime;
 using Orleans.Storage;
 
 namespace Orleans.Configuration
@@ -21,6 +18,11 @@ namespace Orleans.Configuration
         /// Indicates if grain data should be deleted or reset to defaults when a grain clears it's state.
         /// </summary>
         public bool DeleteStateOnClear { get; set; } = false;
+
+        /// <summary>
+        /// Indicates if grain data should be stored in string or in binary format.
+        /// </summary>
+        public bool UseStringFormat { get; set; }
 
         /// <summary>
         /// Stage of silo lifecycle where storage should be initialized.  Storage must be initialized prior to use.

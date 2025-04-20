@@ -1,6 +1,4 @@
 using Microsoft.Extensions.Configuration;
-using Orleans;
-using Orleans.Hosting;
 using Orleans.Providers;
 using Orleans.TestingHost;
 using Tester.StreamingTests;
@@ -10,7 +8,7 @@ using Xunit;
 namespace UnitTests.StreamingTests
 {
     [TestCategory("BVT"), TestCategory("Streaming")]
-    public class MemoryProgrammaticSubcribeTests : ProgrammaticSubcribeTestsRunner, IClassFixture<MemoryProgrammaticSubcribeTests.Fixture>
+    public class MemoryProgrammaticSubcribeTests : ProgrammaticSubscribeTestsRunner, IClassFixture<MemoryProgrammaticSubcribeTests.Fixture>
     {
         public class Fixture : BaseTestClusterFixture
         {

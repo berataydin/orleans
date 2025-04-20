@@ -2,26 +2,34 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 
 namespace Orleans.Analyzers
 {
+    internal readonly record struct AttributeArgumentBag<T>(T Value, Location Location);
+
     internal static class SyntaxHelpers
     {
-        public static string GetTypeName(this AttributeSyntax attributeSyntax) => attributeSyntax.Name switch
+        public static bool TryGetTypeName(this AttributeSyntax attributeSyntax, out string typeName)
         {
-            IdentifierNameSyntax id => id.Identifier.Text,
-            QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
-            _ => throw new NotSupportedException()
-        };
+            typeName = attributeSyntax.Name switch
+            {
+                IdentifierNameSyntax id => id.Identifier.Text,
+                QualifiedNameSyntax qualified => qualified.Right.Identifier.Text,
+                GenericNameSyntax generic => generic.Identifier.Text,
+                AliasQualifiedNameSyntax aliased => aliased.Name.Identifier.Text,
+                _ => null
+            };
 
-        public static bool IsAttribute(this AttributeSyntax attributeSyntax, string attributeName)
-        {
-            var name = attributeSyntax.GetTypeName();
-            return string.Equals(name, attributeName, StringComparison.Ordinal)
-                || (name.StartsWith(attributeName, StringComparison.Ordinal) && name.EndsWith(nameof(Attribute), StringComparison.Ordinal) && name.Length == attributeName.Length + nameof(Attribute).Length);
+            return typeName != null;
         }
+
+        public static bool IsAttribute(this AttributeSyntax attributeSyntax, string attributeName) =>
+            attributeSyntax.TryGetTypeName(out var name) &&
+            (string.Equals(name, attributeName, StringComparison.Ordinal)
+             || (name.StartsWith(attributeName, StringComparison.Ordinal) && name.EndsWith(nameof(Attribute), StringComparison.Ordinal) && name.Length == attributeName.Length + nameof(Attribute).Length));
 
         public static bool HasAttribute(this MemberDeclarationSyntax member, string attributeName)
         {
@@ -70,7 +78,7 @@ namespace Orleans.Analyzers
 
             return null;
         }
-        
+
         public static bool IsAbstract(this MemberDeclarationSyntax member) => member.HasModifier(SyntaxKind.AbstractKeyword);
 
         public static bool IsStatic(this MemberDeclarationSyntax member) => member.HasModifier(SyntaxKind.StaticKeyword);
@@ -80,7 +88,7 @@ namespace Orleans.Analyzers
             foreach (var modifier in member.Modifiers)
             {
                 var kind = modifier.Kind();
-                if (kind == modifierKind) 
+                if (kind == modifierKind)
                 {
                     return true;
                 }
@@ -139,5 +147,100 @@ namespace Orleans.Analyzers
             return isFieldOrAutoProperty;
         }
 
+        public static bool ExtendsGrainInterface(this InterfaceDeclarationSyntax interfaceDeclaration, SemanticModel semanticModel)
+        {
+            if (interfaceDeclaration is null)
+            {
+                return false;
+            }
+
+            var symbol = semanticModel.GetDeclaredSymbol(interfaceDeclaration);
+            if (symbol is null || symbol.TypeKind != TypeKind.Interface)
+            {
+                return false;
+            }
+
+            foreach (var interfaceSymbol in symbol.AllInterfaces)
+            {
+                if (Constants.IAddressibleFullyQualifiedName.Equals(interfaceSymbol.ToDisplayString(NullableFlowState.None), StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public static bool InheritsGrainClass(this ClassDeclarationSyntax declaration, SemanticModel semanticModel)
+        {
+            var baseTypes = declaration.BaseList?.Types;
+            if (baseTypes is null)
+            {
+                return false;
+            }
+
+            foreach (var baseTypeSyntax in baseTypes)
+            {
+                var baseTypeSymbol = semanticModel.GetTypeInfo(baseTypeSyntax.Type).Type;
+                if (baseTypeSymbol is INamedTypeSymbol currentTypeSymbol)
+                {
+                    if (currentTypeSymbol.IsGenericType &&
+                        currentTypeSymbol.TypeParameters.Length == 1 &&
+                        currentTypeSymbol.BaseType is { } baseBaseTypeSymbol)
+                    {
+                        currentTypeSymbol = baseBaseTypeSymbol;
+                    }
+
+                    if (Constants.GrainBaseFullyQualifiedName.Equals(currentTypeSymbol.ToDisplayString(NullableFlowState.None), StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        public static AttributeArgumentBag<T> GetArgumentBag<T>(this AttributeSyntax attribute, SemanticModel semanticModel)
+        {
+            if (attribute is null)
+            {
+                return default;
+            }
+
+            var argument = attribute.ArgumentList?.Arguments.FirstOrDefault();
+            if (argument is null || argument.Expression is not { } expression)
+            {
+                return default;
+            }
+
+            var constantValue = semanticModel.GetConstantValue(expression);
+            return constantValue.HasValue && constantValue.Value is T value ?
+                new(value, attribute.GetLocation()) : default;
+        }
+
+        public static IEnumerable<AttributeSyntax> GetAttributeSyntaxes(this SyntaxList<AttributeListSyntax> attributeLists, string attributeName) =>
+            attributeLists
+                .SelectMany(attributeList => attributeList.Attributes)
+                .Where(attribute => attribute.IsAttribute(attributeName));
+
+        public static string GetArgumentValue(this AttributeSyntax attribute, SemanticModel semanticModel)
+        {
+            if (attribute?.ArgumentList == null || attribute.ArgumentList.Arguments.Count == 0)
+            {
+                return null;
+            }
+
+            var symbolInfo = semanticModel.GetSymbolInfo(attribute);
+            if (symbolInfo.Symbol == null && symbolInfo.CandidateSymbols.Length == 0)
+            {
+                return null;
+            }
+
+            var argumentExpression = attribute.ArgumentList.Arguments[0].Expression;
+            var constant = semanticModel.GetConstantValue(argumentExpression);
+
+            return constant.HasValue ? constant.Value?.ToString() : null;
+        }
     }
 }

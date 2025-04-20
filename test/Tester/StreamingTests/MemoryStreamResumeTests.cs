@@ -1,7 +1,4 @@
-using System;
 using Microsoft.Extensions.Configuration;
-using Orleans;
-using Orleans.Hosting;
 using Orleans.Providers;
 using Orleans.TestingHost;
 
@@ -29,6 +26,12 @@ namespace Tester.StreamingTests
                         b.ConfigurePullingAgent(ob => ob.Configure(options =>
                         {
                             options.StreamInactivityPeriod = StreamInactivityPeriod;
+                        }));
+                        b.ConfigureCacheEviction(ob => ob.Configure(options =>
+                        {
+                            options.MetadataMinTimeInCache = MetadataMinTimeInCache;
+                            options.DataMaxAgeInCache = DataMaxAgeInCache;
+                            options.DataMinTimeInCache = DataMinTimeInCache;
                         }));
                     });
             }

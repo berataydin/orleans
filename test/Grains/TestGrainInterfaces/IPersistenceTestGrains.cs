@@ -1,8 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using Orleans;
-
 // ReSharper disable InconsistentNaming
 
 namespace UnitTests.GrainInterfaces
@@ -23,7 +18,6 @@ namespace UnitTests.GrainInterfaces
         Task DoDelete();
     }
 
-
     public interface IPersistenceTestGenericGrain<T> : IPersistenceTestGrain // IGrainWithGuidKey
     { }
     //    Task<bool> CheckStateInit();
@@ -42,7 +36,23 @@ namespace UnitTests.GrainInterfaces
         Task<int> DoRead();
         Task DoDelete();
     }
-    
+
+    [Serializable]
+    [GenerateSerializer]
+    public class PersistenceTestGrainState
+    {
+        public PersistenceTestGrainState()
+        {
+            SortedDict = new SortedDictionary<int, int>();
+        }
+
+        [Id(0)]
+        public int Field1 { get; set; }
+        [Id(1)]
+        public string Field2 { get; set; }
+        [Id(2)]
+        public SortedDictionary<int, int> SortedDict { get; set; }
+    }
 
     public interface IGrainStorageTestGrain : IGrainWithGuidKey
     {
@@ -50,6 +60,7 @@ namespace UnitTests.GrainInterfaces
         Task DoWrite(int val);
         Task<int> DoRead();
         Task DoDelete();
+        ValueTask<GrainState<PersistenceTestGrainState>> GetStateAsync();
     }
 
     public interface IGrainStorageGenericGrain<T> : IGrainWithIntegerKey
@@ -78,48 +89,6 @@ namespace UnitTests.GrainInterfaces
     }
 
     public interface IGrainStorageTestGrain_LongExtendedKey : IGrainWithIntegerCompoundKey
-    {
-        Task<string> GetExtendedKeyValue();
-        Task<int> GetValue();
-        Task DoWrite(int val);
-        Task<int> DoRead();
-        Task DoDelete();
-    }
-
-    public interface IAWSStorageTestGrain : IGrainWithGuidKey
-    {
-        Task<int> GetValue();
-        Task DoWrite(int val);
-        Task<int> DoRead();
-        Task DoDelete();
-    }
-
-    public interface IAWSStorageGenericGrain<T> : IGrainWithIntegerKey
-    {
-        Task<T> GetValue();
-        Task DoWrite(T val);
-        Task<T> DoRead();
-        Task DoDelete();
-    }
-
-    public interface IAWSStorageTestGrain_GuidExtendedKey : IGrainWithGuidCompoundKey
-    {
-        Task<string> GetExtendedKeyValue();
-        Task<int> GetValue();
-        Task DoWrite(int val);
-        Task<int> DoRead();
-        Task DoDelete();
-    }
-
-    public interface IAWSStorageTestGrain_LongKey : IGrainWithIntegerKey
-    {
-        Task<int> GetValue();
-        Task DoWrite(int val);
-        Task<int> DoRead();
-        Task DoDelete();
-    }
-
-    public interface IAWSStorageTestGrain_LongExtendedKey : IGrainWithIntegerCompoundKey
     {
         Task<string> GetExtendedKeyValue();
         Task<int> GetValue();
@@ -192,7 +161,7 @@ namespace UnitTests.GrainInterfaces
         Task Task_Delay(bool doStart);
     }
 
-    public interface INonReentrentStressGrainWithoutState : IGrainWithGuidKey
+    public interface INonReentrantStressGrainWithoutState : IGrainWithGuidKey
     {
         Task Test1();
         Task Task_Delay(bool doStart);
@@ -231,6 +200,20 @@ namespace UnitTests.GrainInterfaces
             return i == filterValue;
 
         }
+    }
+
+    public interface ISurrogateStateForTypeWithoutPublicConstructorGrain<T> : IGrainWithGuidKey
+        where T : class
+    {
+        Task SetState(T state);
+        Task<T> GetState();
+    }
+
+    public interface IRecordTypeWithoutPublicParameterlessConstructorGrain<T> : IGrainWithGuidKey
+        where T : class
+    {
+        Task SetState(T state);
+        Task<T> GetState();
     }
 }
 // ReSharper restore InconsistentNaming

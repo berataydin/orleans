@@ -1,12 +1,7 @@
-using System;
-using System.Collections.Generic;
 using System.Data.Common;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
 using Orleans.Tests.SqlUtils;
 using Tester.RelationalUtilities;
-using Xunit.Sdk;
+using TestExtensions;
 
 namespace UnitTests.General
 {
@@ -19,6 +14,15 @@ namespace UnitTests.General
                 {AdoNetInvariants.InvariantNameMySql, cs => new MySqlStorageForTesting(cs)},
                 {AdoNetInvariants.InvariantNamePostgreSql, cs => new PostgreSqlStorageForTesting(cs)}
             };
+
+        private static readonly Dictionary<string, string> ConnectionStringsByInvariant =
+            new()
+            {
+                {AdoNetInvariants.InvariantNameSqlServer, TestDefaultConfiguration.MsSqlConnectionString},
+                {AdoNetInvariants.InvariantNameMySql, TestDefaultConfiguration.MySqlConnectionString},
+                {AdoNetInvariants.InvariantNamePostgreSql, TestDefaultConfiguration.PostgresConnectionString}
+            };
+
         public IRelationalStorage Storage { get; private set; }
 
         public string CurrentConnectionString
@@ -38,11 +42,14 @@ namespace UnitTests.General
 
         public abstract string CreateStreamTestTable { get; }
 
-        public virtual string DeleteStreamTestTable { get { return "DELETE StreamingTest;"; } }
+        public virtual string DeleteStreamTestTable
+        { get { return "DELETE StreamingTest;"; } }
 
-        public virtual string StreamTestSelect { get { return "SELECT Id, StreamData FROM StreamingTest WHERE Id = @streamId;"; } }
+        public virtual string StreamTestSelect
+        { get { return "SELECT Id, StreamData FROM StreamingTest WHERE Id = @streamId;"; } }
 
-        public virtual string StreamTestInsert { get { return "INSERT INTO StreamingTest(Id, StreamData) VALUES(@id, @streamData);"; } }
+        public virtual string StreamTestInsert
+        { get { return "INSERT INTO StreamingTest(Id, StreamData) VALUES(@id, @streamData);"; } }
 
         /// <summary>
         /// The script that creates Orleans schema in the database, usually CreateOrleansTables_xxxx.sql
@@ -52,9 +59,11 @@ namespace UnitTests.General
                                 $"{this.ProviderMoniker}-Clustering.sql",
                                 $"{this.ProviderMoniker}-Persistence.sql",
                                 $"{this.ProviderMoniker}-Reminders.sql",
+                                $"{this.ProviderMoniker}-Streaming.sql",
                                 }.Concat(Directory.GetFiles(Environment.CurrentDirectory, $"{this.ProviderMoniker}-Clustering-*.sql")
                                 .Concat(Directory.GetFiles(Environment.CurrentDirectory, $"{this.ProviderMoniker}-Persistence-*.sql"))
                                 .Concat(Directory.GetFiles(Environment.CurrentDirectory, $"{this.ProviderMoniker}-Reminders-*.sql"))
+                                .Concat(Directory.GetFiles(Environment.CurrentDirectory, $"{this.ProviderMoniker}-Streaming-*.sql"))
                                 .Select(f => Path.GetFileName(f))
                                 .OrderBy(f => f)).ToArray();
 
@@ -80,16 +89,27 @@ namespace UnitTests.General
         /// <param name="databaseName">the name of the database</param>
         protected abstract IEnumerable<string> ConvertToExecutableBatches(string setupScript, string databaseName);
 
+        public static void CheckPreconditionsOrThrow(string invariantName, string connectionString = null)
+        {
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                Skip.IfNot(ConnectionStringsByInvariant.TryGetValue(invariantName, out connectionString), $"Unknown ADO.NET invariant, '{invariantName}'");
+            }
+
+            Skip.If(string.IsNullOrEmpty(connectionString), "Connection string not provided.");
+        }
+
         public static async Task<RelationalStorageForTesting> SetupInstance(string invariantName, string testDatabaseName, string connectionString = null)
         {
+            CheckPreconditionsOrThrow(invariantName, connectionString);
             if (string.IsNullOrWhiteSpace(invariantName))
             {
-                throw new ArgumentException("The name of invariant must contain characters", "invariantName");
+                throw new ArgumentException("The name of invariant must contain characters", nameof(invariantName));
             }
 
             if (string.IsNullOrWhiteSpace(testDatabaseName))
             {
-                throw new ArgumentException("database string must contain characters", "testDatabaseName");
+                throw new ArgumentException("database string must contain characters", nameof(testDatabaseName));
             }
 
             Console.WriteLine("Initializing relational databases...");
@@ -103,7 +123,7 @@ namespace UnitTests.General
                 return testStorage;
             }
 
-            Console.WriteLine("Dropping and recreating database '{0}' with connectionstring '{1}'", testDatabaseName, testStorage.CurrentConnectionString);
+            Console.WriteLine("Dropping and recreating database '{0}' with ConnectionString '{1}'", testDatabaseName, testStorage.CurrentConnectionString);
 
             if (await testStorage.ExistsDatabaseAsync(testDatabaseName))
             {
@@ -117,7 +137,7 @@ namespace UnitTests.General
 
             Console.WriteLine("Creating database tables...");
 
-            var setupScript = String.Empty;
+            var setupScript = string.Empty;
 
             // Concatenate scripts
             foreach (var fileName in testStorage.SetupSqlScriptFileNames)
@@ -150,6 +170,10 @@ namespace UnitTests.General
             if (!string.IsNullOrEmpty(connectionString))
             {
                 Storage = RelationalStorage.CreateInstance(invariantName, connectionString);
+            }
+            else
+            {
+                throw new SkipException("ConnectionString not provided.");
             }
         }
 
@@ -191,15 +215,14 @@ namespace UnitTests.General
             await Storage.ExecuteAsync(string.Format(CreateDatabaseTemplate, databaseName), command => { }).ConfigureAwait(continueOnCapturedContext: false);
         }
 
-
         /// <summary>
         /// Drops a database with a given name.
         /// </summary>
         /// <param name="databaseName">The name of the database to drop.</param>
         /// <returns>The call will be successful if the DDL query is successful. Otherwise an exception will be thrown.</returns>
-        private Task DropDatabaseAsync(string databaseName)
+        private async Task DropDatabaseAsync(string databaseName)
         {
-            return Storage.ExecuteAsync(string.Format(DropDatabaseTemplate, databaseName), command => { });
+            await Storage.ExecuteAsync(string.Format(DropDatabaseTemplate, databaseName), command => { });
         }
 
         /// <summary>
@@ -214,6 +237,5 @@ namespace UnitTests.General
             csb["Database"] = newDatabaseName;
             return CreateTestInstance(Storage.InvariantName, csb.ConnectionString);
         }
-
     }
 }

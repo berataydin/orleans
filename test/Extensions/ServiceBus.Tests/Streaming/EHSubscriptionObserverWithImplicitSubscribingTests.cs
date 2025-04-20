@@ -1,7 +1,4 @@
-using System;
 using Microsoft.Extensions.Configuration;
-using Orleans;
-using Orleans.Hosting;
 using Orleans.Streams;
 using Orleans.TestingHost;
 using Tester.StreamingTests.ProgrammaticSubscribeTests;
@@ -40,7 +37,7 @@ namespace ServiceBus.Tests.StreamingTests
                         }));
                         b.UseAzureTableCheckpointer(ob => ob.Configure(options =>
                         {
-                            options.ConfigureTableServiceClient(TestDefaultConfiguration.DataConnectionString);
+                            options.ConfigureTestDefaults();
                             options.PersistInterval = TimeSpan.FromSeconds(10);
                         }));
                         b.ConfigureStreamPubSub(StreamPubSubType.ImplicitOnly);
@@ -56,7 +53,7 @@ namespace ServiceBus.Tests.StreamingTests
                         }));
                         b.UseAzureTableCheckpointer(ob => ob.Configure(options =>
                         {
-                            options.ConfigureTableServiceClient(TestDefaultConfiguration.DataConnectionString);
+                            options.ConfigureTestDefaults();
                             options.PersistInterval = TimeSpan.FromSeconds(10);
                         }));
                         b.ConfigureStreamPubSub(StreamPubSubType.ImplicitOnly);

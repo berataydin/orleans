@@ -1,16 +1,11 @@
-using System;
-using System.Threading.Tasks;
 using System.Collections.Concurrent;
-using System.Linq;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Orleans.Providers.Streams.Common;
-using Orleans.Runtime;
 using Orleans.Streaming.EventHubs;
 using Orleans.Streams;
 using Orleans.Streaming.EventHubs.Testing;
 using Orleans.Configuration;
-using Orleans;
 using Orleans.Statistics;
 
 namespace ServiceBus.Tests.TestStreamProviders
@@ -33,8 +28,8 @@ namespace ServiceBus.Tests.TestStreamProviders
             IEventHubDataAdapter dataAdatper,
             IServiceProvider serviceProvider,
             ILoggerFactory loggerFactory,
-            IHostEnvironmentStatistics hostEnvironmentStatistics)
-            : base(name, options, ehOptions, receiverOptions, cacheOptions, evictionOptions, statisticOptions, dataAdatper, serviceProvider, loggerFactory, hostEnvironmentStatistics)
+            IEnvironmentStatisticsProvider environmentStatisticsProvider)
+            : base(name, options, ehOptions, receiverOptions, cacheOptions, evictionOptions, statisticOptions, dataAdatper, serviceProvider, loggerFactory, environmentStatisticsProvider)
 
         {
             this.createdCaches = new ConcurrentBag<QueueCacheForTesting>();
@@ -136,7 +131,7 @@ namespace ServiceBus.Tests.TestStreamProviders
             var cacheOptions = services.GetOptionsByName<EventHubStreamCachePressureOptions>(name);
             var evictionOptions = services.GetOptionsByName<StreamCacheEvictionOptions>(name);
             var statisticOptions = services.GetOptionsByName<StreamStatisticOptions>(name);
-            IEventHubDataAdapter dataAdapter = services.GetServiceByName<IEventHubDataAdapter>(name)
+            IEventHubDataAdapter dataAdapter = services.GetKeyedService<IEventHubDataAdapter>(name)
                 ?? services.GetService<IEventHubDataAdapter>()
                 ?? ActivatorUtilities.CreateInstance<EventHubDataAdapter>(services);
             var factory = ActivatorUtilities.CreateInstance<EHStreamProviderWithCreatedCacheListAdapterFactory>(services, name, generatorOptions, ehOptions, receiverOptions, 

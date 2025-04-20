@@ -1,12 +1,7 @@
-using System;
-using System.Threading.Tasks;
-using System.Linq;
 using TestGrainInterfaces;
 using Xunit;
 using Assert = Xunit.Assert;
 using Orleans.Runtime;
-using System.Collections.Generic;
-using Orleans.Internal;
 
 namespace Tester.EventSourcingTests
 {
@@ -48,11 +43,11 @@ namespace Tester.EventSourcingTests
             await ConcurrentIncrementsRunner(grain, 50, false);
         }
 
-        private static string[] keys = { "a", "b", "c", "d", "e", "f", "g", "h" };
-        private string RandomKey() { return keys[Random.Shared.Next(keys.Length)]; }
+        private static readonly string[] keys = { "a", "b", "c", "d", "e", "f", "g", "h" };
+        private static string RandomKey() { return keys[Random.Shared.Next(keys.Length)]; }
 
 
-        private async Task ConcurrentIncrementsRunner(ICountersGrain grain, int count, bool wait_for_confirmation_on_each)
+        private static async Task ConcurrentIncrementsRunner(ICountersGrain grain, int count, bool wait_for_confirmation_on_each)
         {
             // increment (count) times, on random keys, concurrently
             var tasks = new List<Task>();

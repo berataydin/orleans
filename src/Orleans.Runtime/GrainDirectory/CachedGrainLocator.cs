@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Options;
 using Orleans.Configuration;
 using Orleans.GrainDirectory;
 using Orleans.Internal;
@@ -30,12 +31,14 @@ namespace Orleans.Runtime.GrainDirectory
         MembershipVersion ITestAccessor.LastMembershipVersion { get; set; }
 
         public CachedGrainLocator(
+            IServiceProvider serviceProvider,
             GrainDirectoryResolver grainDirectoryResolver,
-            IClusterMembershipService clusterMembershipService)
+            IClusterMembershipService clusterMembershipService,
+            IOptions<GrainDirectoryOptions> grainDirectoryOptions)
         {
             this.grainDirectoryResolver = grainDirectoryResolver;
             this.clusterMembershipService = clusterMembershipService;
-            this.cache = new LRUBasedGrainDirectoryCache(GrainDirectoryOptions.DEFAULT_CACHE_SIZE, GrainDirectoryOptions.DEFAULT_MAXIMUM_CACHE_TTL);
+            this.cache = GrainDirectoryCacheFactory.CreateCustomGrainDirectoryCache(serviceProvider, grainDirectoryOptions.Value);
         }
 
         public async ValueTask<GrainAddress> Lookup(GrainId grainId)
@@ -76,7 +79,7 @@ namespace Orleans.Runtime.GrainDirectory
             return entry;
         }
 
-        public async Task<GrainAddress> Register(GrainAddress address)
+        public async Task<GrainAddress> Register(GrainAddress address, GrainAddress previousAddress)
         {
             var grainType = address.GrainId.Type;
             if (grainType.IsClient() || grainType.IsSystemTarget())
@@ -92,29 +95,32 @@ namespace Orleans.Runtime.GrainDirectory
                 MembershipVersion = clusterMembershipService.CurrentSnapshot.Version
             };
 
-            var result = await GetGrainDirectory(grainType).Register(address);
+            var result = await GetGrainDirectory(grainType).Register(address, previousAddress);
 
             // Check if the entry point to a dead silo
             if (IsKnownDeadSilo(result))
             {
                 // Remove outdated entry and retry to register
                 await GetGrainDirectory(grainType).Unregister(result);
-                result = await GetGrainDirectory(grainType).Register(address);
+                result = await GetGrainDirectory(grainType).Register(address, previousAddress);
             }
 
             // Cache update
-            this.cache.AddOrUpdate(result, (int) result.MembershipVersion.Value);
+            this.cache.AddOrUpdate(result, (int)result.MembershipVersion.Value);
 
             return result;
         }
 
         public async Task Unregister(GrainAddress address, UnregistrationCause cause)
         {
-            try
-            {
-                await GetGrainDirectory(address.GrainId.Type).Unregister(address);
-            }
-            finally
+            // Remove from local cache first so we don't return it anymore
+            this.cache.Remove(address);
+
+            // Remove from grain directory which may take significantly longer
+            await GetGrainDirectory(address.GrainId.Type).Unregister(address);
+
+            // There is the potential for a lookup to race with the Unregister and add the bad entry back to the cache.
+            if (this.cache.LookUp(address.GrainId, out var entry, out _) && entry.Equals(address))
             {
                 this.cache.Remove(address);
             }
@@ -131,7 +137,9 @@ namespace Orleans.Runtime.GrainDirectory
             {
                 this.shutdownToken.Cancel();
                 if (listenToClusterChangeTask != default && !ct.IsCancellationRequested)
-                    await listenToClusterChangeTask.WithCancellation(ct);
+                {
+                    await listenToClusterChangeTask.WaitAsync(ct).SuppressThrowing();
+                }
             };
             lifecycle.Subscribe(nameof(CachedGrainLocator), ServiceLifecycleStage.RuntimeGrainServices, OnStart, OnStop);
         }
@@ -161,7 +169,7 @@ namespace Orleans.Runtime.GrainDirectory
                     {
                         tasks.Add(directory.UnregisterSilos(deadSilos));
                     }
-                    await Task.WhenAll(tasks).WithCancellation(this.shutdownToken.Token);
+                    await Task.WhenAll(tasks).WaitAsync(this.shutdownToken.Token);
                 }
 
                 ((ITestAccessor)this).LastMembershipVersion = snapshot.Version;
@@ -189,7 +197,7 @@ namespace Orleans.Runtime.GrainDirectory
 
         private static void ThrowUnsupportedGrainType(GrainId grainId) => throw new InvalidOperationException($"Unsupported grain type for grain {grainId}");
 
-        public void CachePlacementDecision(GrainId grainId, SiloAddress siloAddress) => cache.AddOrUpdate(new GrainAddress { GrainId = grainId, SiloAddress = siloAddress }, 0);
+        public void UpdateCache(GrainId grainId, SiloAddress siloAddress) => cache.AddOrUpdate(new GrainAddress { GrainId = grainId, SiloAddress = siloAddress }, 0);
         public void InvalidateCache(GrainId grainId) => cache.Remove(grainId);
         public void InvalidateCache(GrainAddress address) => cache.Remove(address);
         public bool TryLookupInCache(GrainId grainId, out GrainAddress address)

@@ -1,5 +1,4 @@
 using System;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Orleans.Reminders.AzureStorage;
 
@@ -60,7 +59,17 @@ namespace Orleans.Hosting
         /// </returns>
         public static ISiloBuilder UseAzureTableReminderService(this ISiloBuilder builder, string connectionString)
         {
-            builder.UseAzureTableReminderService(options => options.ConfigureTableServiceClient(connectionString));
+            builder.UseAzureTableReminderService(options =>
+            {
+                if (Uri.TryCreate(connectionString, UriKind.Absolute, out var uri))
+                {
+                    options.TableServiceClient = new(uri);
+                }
+                else
+                {
+                    options.TableServiceClient = new(connectionString);
+                }
+            });
             return builder;
         }
     }

@@ -5,50 +5,64 @@ using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Orleans.Core;
 using Orleans.Providers;
 using Orleans.Runtime;
+using Orleans.Serialization.Serializers;
 using Orleans.Storage;
 using Orleans.Streams.Core;
 
 #nullable enable
 namespace Orleans.Streams
 {
-    internal sealed class PubSubGrainStateStorageFactory
+    internal sealed partial class PubSubGrainStateStorageFactory
     {
         private readonly IServiceProvider _serviceProvider;
-        private readonly ILoggerFactory _loggerFactory;
+        private readonly ILogger<PubSubGrainStateStorageFactory> _logger;
 
         public PubSubGrainStateStorageFactory(IServiceProvider serviceProvider, ILoggerFactory loggerFactory)
         {
             _serviceProvider = serviceProvider;
-            _loggerFactory = loggerFactory;
+            _logger = loggerFactory.CreateLogger<PubSubGrainStateStorageFactory>();
         }
 
         public StateStorageBridge<PubSubGrainState> GetStorage(PubSubRendezvousGrain grain)
         {
-            var logger = _loggerFactory.CreateLogger<PubSubGrainStateStorageFactory>();
-            var grainId = grain.GrainId;
-
-            var span = grainId.Key.AsSpan();
+            var span = grain.GrainId.Key.AsSpan();
             var i = span.IndexOf((byte)'/');
-            if (i < 0) throw new ArgumentException($"Unable to parse \"{grainId.Key}\" as a stream id");
+            if (i < 0)
+            {
+                throw new ArgumentException($"Unable to parse \"{grain.GrainId.Key}\" as a stream id");
+            }
+
             var providerName = Encoding.UTF8.GetString(span[..i]);
 
-            if (logger.IsEnabled(LogLevel.Debug))
-                logger.LogDebug("Trying to find storage provider {ProviderName}", providerName);
+            LogDebugTryingToFindStorageProvider(providerName);
 
-            var storage = _serviceProvider.GetServiceByName<IGrainStorage>(providerName);
+            var storage = _serviceProvider.GetKeyedService<IGrainStorage>(providerName);
             if (storage == null)
             {
-                if (logger.IsEnabled(LogLevel.Debug))
-                    logger.LogDebug("Fallback to storage provider {ProviderName}", ProviderConstants.DEFAULT_PUBSUB_PROVIDER_NAME);
+                LogDebugFallbackToStorageProvider(ProviderConstants.DEFAULT_PUBSUB_PROVIDER_NAME);
 
-                storage = _serviceProvider.GetRequiredServiceByName<IGrainStorage>(ProviderConstants.DEFAULT_PUBSUB_PROVIDER_NAME);
+                storage = _serviceProvider.GetRequiredKeyedService<IGrainStorage>(ProviderConstants.DEFAULT_PUBSUB_PROVIDER_NAME);
             }
-            return new(nameof(PubSubRendezvousGrain), grain.GrainId, storage, _loggerFactory);
+
+            return new(nameof(PubSubRendezvousGrain), grain.GrainContext, storage);
         }
+
+        [LoggerMessage(
+            Level = LogLevel.Debug,
+            Message = "Trying to find storage provider {ProviderName}"
+        )]
+        private partial void LogDebugTryingToFindStorageProvider(string providerName);
+
+        [LoggerMessage(
+            Level = LogLevel.Debug,
+            Message = "Fallback to storage provider {ProviderName}"
+        )]
+        private partial void LogDebugFallbackToStorageProvider(string providerName);
     }
 
     [Serializable]
@@ -62,26 +76,25 @@ namespace Orleans.Streams
     }
 
     [GrainType("pubsubrendezvous")]
-    internal sealed class PubSubRendezvousGrain : Grain, IPubSubRendezvousGrain
+    internal sealed partial class PubSubRendezvousGrain : Grain, IPubSubRendezvousGrain, IGrainMigrationParticipant
     {
-        private readonly ILogger logger;
+        private readonly ILogger _logger;
         private const bool DEBUG_PUB_SUB = false;
 
         private readonly PubSubGrainStateStorageFactory _storageFactory;
-        private StateStorageBridge<PubSubGrainState> _storage;
+        private readonly StateStorageBridge<PubSubGrainState> _storage;
 
         private PubSubGrainState State => _storage.State;
 
         public PubSubRendezvousGrain(PubSubGrainStateStorageFactory storageFactory, ILogger<PubSubRendezvousGrain> logger)
         {
             _storageFactory = storageFactory;
-            this.logger = logger;
-            _storage = null!;
+            _logger = logger;
+            _storage = _storageFactory.GetStorage(this);
         }
 
         public override async Task OnActivateAsync(CancellationToken cancellationToken)
         {
-            _storage = _storageFactory.GetStorage(this);
             await ReadStateAsync();
             LogPubSubCounts("OnActivateAsync");
         }
@@ -106,12 +119,7 @@ namespace Orleans.Streams
             }
             catch (Exception exc)
             {
-                logger.LogError(
-                    (int)ErrorCode.Stream_RegisterProducerFailed,
-                    exc,
-                    "Failed to register a stream producer. Stream: {StreamId}, Producer: {StreamProducer}",
-                    streamId,
-                    streamProducer);
+                LogErrorRegisterProducer(streamId, streamProducer, exc);
 
                 // Corrupted state, deactivate grain.
                 DeactivateOnIdle();
@@ -139,12 +147,7 @@ namespace Orleans.Streams
             }
             catch (Exception exc)
             {
-                logger.LogError(
-                    (int)ErrorCode.Stream_UnegisterProducerFailed,
-                    exc,
-                    "Failed to unregister a stream producer. Stream: {StreamId}, Producer: {StreamProducer}",
-                    streamId,
-                    streamProducer);
+                LogErrorUnregisterProducer(streamId, streamProducer, exc);
 
                 // Corrupted state, deactivate grain.
                 DeactivateOnIdle();
@@ -183,13 +186,7 @@ namespace Orleans.Streams
             }
             catch (Exception exc)
             {
-                logger.LogError(
-                    (int)ErrorCode.Stream_RegisterConsumerFailed,
-                    exc,
-                    "Failed to register a stream consumer. Stream: {StreamId}, SubscriptionId {SubscriptionId}, Consumer: {StreamConsumer}",
-                    streamId,
-                    subscriptionId,
-                    streamConsumer);
+                LogErrorRegisterConsumer(streamId, subscriptionId, streamConsumer, exc);
 
                 // Corrupted state, deactivate grain.
                 DeactivateOnIdle();
@@ -200,9 +197,7 @@ namespace Orleans.Streams
             if (numProducers <= 0)
                 return;
 
-            if (logger.IsEnabled(LogLevel.Debug))
-                logger.LogDebug("Notifying {ProducerCount} existing producer(s) about new consumer {Consumer}. Producers={Producers}",
-                    numProducers, streamConsumer, Utils.EnumerableToString(State.Producers));
+            LogDebugNotifyProducersOfNewConsumer(numProducers, streamConsumer, new(State.Producers));
 
             // Notify producers about a new streamConsumer.
             var tasks = new List<Task>();
@@ -239,13 +234,11 @@ namespace Orleans.Streams
             }
             catch (Exception exc)
             {
-                logger.LogError(
-                    (int)ErrorCode.Stream_RegisterConsumerFailed,
-                    exc,
-                    "Failed to update producers while register a stream consumer. Stream: {StreamId}, SubscriptionId {SubscriptionId}, Consumer: {StreamConsumer}",
+                LogErrorRegisterConsumerFailed(
                     streamId,
                     subscriptionId,
-                    streamConsumer);
+                    streamConsumer,
+                    exc);
 
                 // Corrupted state, deactivate grain.
                 DeactivateOnIdle();
@@ -255,10 +248,7 @@ namespace Orleans.Streams
 
         private void RemoveProducer(PubSubPublisherState producer)
         {
-            logger.LogWarning(
-                (int)ErrorCode.Stream_ProducerIsDead,
-                "Producer {Producer} on stream {StreamId} is no longer active - permanently removing producer.",
-                producer, producer.Stream);
+            LogWarningProducerIsDead(producer, producer.Stream);
 
             State.Producers.Remove(producer);
         }
@@ -290,12 +280,7 @@ namespace Orleans.Streams
             }
             catch (Exception exc)
             {
-                logger.LogError(
-                    (int)ErrorCode.Stream_UnregisterConsumerFailed,
-                    exc,
-                    "Failed to unregister a stream consumer. Stream: {StreamId}, SubscriptionId {SubscriptionId}",
-                    streamId,
-                    subscriptionId);
+                LogErrorUnregisterConsumer(streamId, subscriptionId, exc);
 
                 // Corrupted state, deactivate grain.
                 DeactivateOnIdle();
@@ -325,7 +310,7 @@ namespace Orleans.Streams
 
         private void LogPubSubCounts(string fmt, params object[] args)
         {
-            if (logger.IsEnabled(LogLevel.Debug) || DEBUG_PUB_SUB)
+            if (_logger.IsEnabled(LogLevel.Debug) || DEBUG_PUB_SUB)
             {
                 int numProducers = 0;
                 int numConsumers = 0;
@@ -335,7 +320,7 @@ namespace Orleans.Streams
                     numConsumers = State.Consumers.Count;
 
                 string when = args != null && args.Length != 0 ? string.Format(fmt, args) : fmt;
-                logger.LogDebug("{When}. Now have total of {ProducerCount} producers and {ConsumerCount} consumers. All Consumers = {Consumers}, All Producers = {Producers}",
+                _logger.LogDebug("{When}. Now have total of {ProducerCount} producers and {ConsumerCount} consumers. All Consumers = {Consumers}, All Producers = {Producers}",
                     when, numProducers, numConsumers, Utils.EnumerableToString(State?.Consumers), Utils.EnumerableToString(State?.Producers));
             }
         }
@@ -409,18 +394,14 @@ namespace Orleans.Streams
             try
             {
                 pubSubState.Fault();
-                if (logger.IsEnabled(LogLevel.Debug)) logger.LogDebug("Setting subscription {SubscriptionId} to a faulted state.", subscriptionId);
+                LogDebugSettingSubscriptionToFaulted(subscriptionId);
 
                 await WriteStateAsync();
                 await NotifyProducersOfRemovedSubscription(pubSubState.SubscriptionId, pubSubState.Stream);
             }
             catch (Exception exc)
             {
-                logger.LogError(
-                    (int)ErrorCode.Stream_SetSubscriptionToFaultedFailed,
-                    exc,
-                    "Failed to set subscription state to faulted. SubscriptionId {SubscriptionId}",
-                    subscriptionId);
+                LogErrorSetSubscriptionToFaulted(subscriptionId, exc);
 
                 // Corrupted state, deactivate grain.
                 DeactivateOnIdle();
@@ -433,7 +414,7 @@ namespace Orleans.Streams
             int numProducersBeforeNotify = State.Producers.Count;
             if (numProducersBeforeNotify > 0)
             {
-                if (logger.IsEnabled(LogLevel.Debug)) logger.LogDebug("Notifying {ProducerCountBeforeNotify} existing producers about unregistered consumer.", numProducersBeforeNotify);
+                LogDebugNotifyProducersOfRemovedConsumer(numProducersBeforeNotify);
 
                 // Notify producers about unregistered consumer.
                 List<Task> tasks = State.Producers
@@ -442,7 +423,7 @@ namespace Orleans.Streams
                 await Task.WhenAll(tasks);
                 //if producers got removed
                 if (State.Producers.Count < numProducersBeforeNotify)
-                    await this.WriteStateAsync();
+                    await WriteStateAsync();
             }
         }
 
@@ -464,7 +445,7 @@ namespace Orleans.Streams
         {
             try
             {
-                var extension = this.GrainFactory
+                var extension = GrainFactory
                     .GetGrain(producer.Producer)
                     .AsReference<IStreamProducerExtension>();
                 await producerTask(extension);
@@ -494,5 +475,79 @@ namespace Orleans.Streams
         private Task ReadStateAsync() => _storage.ReadStateAsync();
         private Task WriteStateAsync() => _storage.WriteStateAsync();
         private Task ClearStateAsync() => _storage.ClearStateAsync();
+        void IGrainMigrationParticipant.OnDehydrate(IDehydrationContext dehydrationContext) => _storage.OnDehydrate(dehydrationContext);
+        void IGrainMigrationParticipant.OnRehydrate(IRehydrationContext rehydrationContext) => _storage.OnRehydrate(rehydrationContext);
+
+        [LoggerMessage(
+            Level = LogLevel.Error,
+            EventId = (int)ErrorCode.Stream_RegisterProducerFailed,
+            Message = "Failed to register a stream producer. Stream: {StreamId}, Producer: {StreamProducer}"
+        )]
+        private partial void LogErrorRegisterProducer(QualifiedStreamId streamId, GrainId streamProducer, Exception exception);
+
+        [LoggerMessage(
+            Level = LogLevel.Error,
+            EventId = (int)ErrorCode.Stream_UnregisterProducerFailed,
+            Message = "Failed to unregister a stream producer. Stream: {StreamId}, Producer: {StreamProducer}"
+        )]
+        private partial void LogErrorUnregisterProducer(QualifiedStreamId streamId, GrainId streamProducer, Exception exception);
+
+        [LoggerMessage(
+            Level = LogLevel.Error,
+            EventId = (int)ErrorCode.Stream_RegisterConsumerFailed,
+            Message = "Failed to register a stream consumer. Stream: {StreamId}, SubscriptionId {SubscriptionId}, Consumer: {StreamConsumer}"
+        )]
+        private partial void LogErrorRegisterConsumer(QualifiedStreamId streamId, GuidId subscriptionId, GrainId streamConsumer, Exception exception);
+
+        private readonly struct ProducersLogRecord(HashSet<PubSubPublisherState> producers)
+        {
+            public override string ToString() => Utils.EnumerableToString(producers);
+        }
+
+        [LoggerMessage(
+            Level = LogLevel.Debug,
+            Message = "Notifying {ProducerCount} existing producer(s) about new consumer {Consumer}. Producers={Producers}"
+        )]
+        private partial void LogDebugNotifyProducersOfNewConsumer(int producerCount, GrainId consumer, ProducersLogRecord producers);
+
+        [LoggerMessage(
+            Level = LogLevel.Error,
+            EventId = (int)ErrorCode.Stream_RegisterConsumerFailed,
+            Message = "Failed to update producers while registering a stream consumer. Stream: {StreamId}, SubscriptionId {SubscriptionId}, Consumer: {StreamConsumer}"
+        )]
+        private partial void LogErrorRegisterConsumerFailed(QualifiedStreamId streamId, GuidId subscriptionId, GrainId streamConsumer, Exception exception);
+
+        [LoggerMessage(
+            Level = LogLevel.Warning,
+            EventId = (int)ErrorCode.Stream_ProducerIsDead,
+            Message = "Producer {Producer} on stream {StreamId} is no longer active - permanently removing producer."
+        )]
+        private partial void LogWarningProducerIsDead(PubSubPublisherState producer, QualifiedStreamId streamId);
+
+        [LoggerMessage(
+            Level = LogLevel.Error,
+            EventId = (int)ErrorCode.Stream_UnregisterConsumerFailed,
+            Message = "Failed to unregister a stream consumer. Stream: {StreamId}, SubscriptionId {SubscriptionId}"
+        )]
+        private partial void LogErrorUnregisterConsumer(QualifiedStreamId streamId, GuidId subscriptionId, Exception exception);
+
+        [LoggerMessage(
+            Level = LogLevel.Debug,
+            Message = "Setting subscription {SubscriptionId} to a faulted state."
+        )]
+        private partial void LogDebugSettingSubscriptionToFaulted(GuidId subscriptionId);
+
+        [LoggerMessage(
+            Level = LogLevel.Error,
+            EventId = (int)ErrorCode.Stream_SetSubscriptionToFaultedFailed,
+            Message = "Failed to set subscription state to faulted. SubscriptionId {SubscriptionId}"
+        )]
+        private partial void LogErrorSetSubscriptionToFaulted(GuidId subscriptionId, Exception exception);
+
+        [LoggerMessage(
+            Level = LogLevel.Debug,
+            Message = "Notifying {ProducerCountBeforeNotify} existing producers about unregistered consumer."
+        )]
+        private partial void LogDebugNotifyProducersOfRemovedConsumer(int producerCountBeforeNotify);
     }
 }

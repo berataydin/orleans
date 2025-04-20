@@ -7,13 +7,13 @@ namespace Orleans.Runtime.ConsistentRing
 {
     /// <summary>
     /// We use the 'backward/clockwise' definition to assign responsibilities on the ring.
-    /// E.g. in a ring of nodes {5, 10, 15} the responsible for key 7 is 10 (the node is responsible for its predecessing range).
+    /// E.g. in a ring of nodes {5, 10, 15} the responsible for key 7 is 10 (the node is responsible for its preceding range).
     /// The backwards/clockwise approach is consistent with many overlays, e.g., Chord, Cassandra, etc.
     /// Note: MembershipOracle uses 'forward/counter-clockwise' definition to assign responsibilities.
-    /// E.g. in a ring of nodes {5, 10, 15}, the responsible of key 7 is node 5 (the node is responsible for its sucessing range)..
+    /// E.g. in a ring of nodes {5, 10, 15}, the responsible of key 7 is node 5 (the node is responsible for its succeeding range).
     /// </summary>
-    internal sealed class VirtualBucketsRingProvider :
-        IConsistentRingProvider, ISiloStatusListener
+    internal sealed partial class VirtualBucketsRingProvider :
+        IConsistentRingProvider, ISiloStatusListener, IDisposable
     {
         private readonly List<IRingRangeListener> statusListeners = new();
         private readonly SortedDictionary<uint, SiloAddress> bucketsMap = new();
@@ -21,14 +21,15 @@ namespace Orleans.Runtime.ConsistentRing
         private readonly ILogger logger;
         private readonly SiloAddress myAddress;
         private readonly int numBucketsPerSilo;
+        private readonly ISiloStatusOracle _siloStatusOracle;
         private bool running;
         private IRingRange myRange;
         private (IRingRange OldRange, IRingRange NewRange, bool Increased) lastNotification;
 
-        internal VirtualBucketsRingProvider(SiloAddress siloAddress, ILoggerFactory loggerFactory, int numVirtualBuckets)
+        internal VirtualBucketsRingProvider(SiloAddress siloAddress, ILoggerFactory loggerFactory, int numVirtualBuckets, ISiloStatusOracle siloStatusOracle)
         {
             numBucketsPerSilo = numVirtualBuckets;
-
+            _siloStatusOracle = siloStatusOracle;
             if (numBucketsPerSilo <= 0)
                 throw new IndexOutOfRangeException($"numBucketsPerSilo is out of the range. numBucketsPerSilo = {numBucketsPerSilo}");
 
@@ -39,10 +40,7 @@ namespace Orleans.Runtime.ConsistentRing
             myRange = RangeFactory.CreateFullRange();
             lastNotification = (myRange, myRange, true);
 
-            if (logger.IsEnabled(LogLevel.Debug))
-            {
-                logger.LogDebug("Starting {Name} on silo {SiloAddress}.", nameof(VirtualBucketsRingProvider), siloAddress.ToStringWithHashCode());
-            }
+            LogDebugStarting(logger, nameof(VirtualBucketsRingProvider), new(siloAddress));
 
             ConsistentRingInstruments.RegisterRingSizeObserve(() => GetRingSize());
             ConsistentRingInstruments.RegisterMyRangeRingPercentageObserve(() => (float)((IRingRangeInternal)myRange).RangePercentage());
@@ -54,6 +52,7 @@ namespace Orleans.Runtime.ConsistentRing
 
             // add myself to the list of members
             AddServer(myAddress);
+            siloStatusOracle.SubscribeToSiloStatusEvents(this);
         }
 
         private void Stop()
@@ -99,10 +98,7 @@ namespace Orleans.Runtime.ConsistentRing
 
         private void NotifyLocalRangeSubscribers(IRingRange old, IRingRange now, bool increased)
         {
-            if (logger.IsEnabled(LogLevel.Trace))
-            {
-                logger.LogTrace((int)ErrorCode.CRP_Notify, "NotifyLocalRangeSubscribers about old {Old} new {New} increased? {IsIncrease}", old.ToString(), now.ToString(), increased);
-            }
+            LogTraceNotifyLocalRangeSubscribers(logger, old, now, increased);
 
             IRingRangeListener[] copy;
             lock (statusListeners)
@@ -118,14 +114,7 @@ namespace Orleans.Runtime.ConsistentRing
                 }
                 catch (Exception exc)
                 {
-                    logger.LogError(
-                        (int)ErrorCode.CRP_Local_Subscriber_Exception,
-                        exc,
-                        "Local IRangeChangeListener {Name} has thrown an exception when was notified about RangeChangeNotification about old {OldRange} new {NewRange} increased? {IsIncrease}",
-                        listener.GetType().FullName,
-                        old,
-                        now,
-                        increased);
+                    LogWarningErrorNotifyingListener(logger, exc, listener.GetType().FullName, increased ? "expansion" : "contraction", old, now);
                 }
             }
         }
@@ -147,10 +136,7 @@ namespace Orleans.Runtime.ConsistentRing
 
                 var myOldRange = myRange;
                 var myNewRange = UpdateRange();
-                if (logger.IsEnabled(LogLevel.Trace))
-                {
-                    logger.LogTrace((int)ErrorCode.CRP_Added_Silo, "Added Server {SiloAddress}. Current view: {CurrentView}", silo.ToStringWithHashCode(), this.ToString());
-                }
+                LogTraceAddedServer(logger, new(silo), this);
 
                 NotifyLocalRangeSubscribers(myOldRange, myNewRange, true);
             }
@@ -177,10 +163,7 @@ namespace Orleans.Runtime.ConsistentRing
                 var myOldRange = this.myRange;
                 var myNewRange = UpdateRange();
 
-                if (logger.IsEnabled(LogLevel.Trace))
-                {
-                    logger.LogTrace((int)ErrorCode.CRP_Removed_Silo, "Removed Server {SiloAddress}. Current view: {CurrentView}", silo.ToStringWithHashCode(), this.ToString());
-                }
+                LogTraceRemovedServer(logger, new(silo), this);
 
                 NotifyLocalRangeSubscribers(myOldRange, myNewRange, true);
             }
@@ -322,12 +305,68 @@ namespace Orleans.Runtime.ConsistentRing
                     s = snapshotBucketsList.Length > 1 ? snapshotBucketsList[1] : default;
                 }
             }
-            if (logger.IsEnabled(LogLevel.Trace))
-            {
-                logger.LogTrace("Calculated ring partition owner silo {Owner} for key {Key}: {Key} --> {OwnerHash}", s.SiloAddress, hash, hash, s.Hash);
-            }
+
+            LogTraceCalculatedRingPartitionOwner(logger, s.SiloAddress, hash, s.Hash);
+
             return s.SiloAddress;
         }
+
+        public void Dispose()
+        {
+            _siloStatusOracle.UnSubscribeFromSiloStatusEvents(this);
+        }
+
+        private readonly struct SiloAddressLogValue
+        {
+            private readonly SiloAddress _siloAddress;
+
+            public SiloAddressLogValue(SiloAddress siloAddress)
+            {
+                _siloAddress = siloAddress;
+            }
+
+            public override string ToString() => _siloAddress.ToStringWithHashCode();
+        }
+
+        [LoggerMessage(
+            Level = LogLevel.Debug,
+            Message = "Starting {Name} on silo {SiloAddress}."
+        )]
+        private static partial void LogDebugStarting(ILogger logger, string name, SiloAddressLogValue siloAddress);
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.CRP_Notify,
+            Level = LogLevel.Trace,
+            Message = "NotifyLocalRangeSubscribers about old {Old} new {New} increased? {IsIncrease}"
+        )]
+        private static partial void LogTraceNotifyLocalRangeSubscribers(ILogger logger, IRingRange old, IRingRange @new, bool isIncrease);
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.CRP_Local_Subscriber_Exception,
+            Level = LogLevel.Warning,
+            Message = "Error notifying listener '{ListenerType}' of ring range {AdjustmentKind} from '{OldRange}' to '{NewRange}'."
+        )]
+        private static partial void LogWarningErrorNotifyingListener(ILogger logger, Exception exception, string listenerType, string adjustmentKind, IRingRange oldRange, IRingRange newRange);
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.CRP_Added_Silo,
+            Level = LogLevel.Trace,
+            Message = "Added Server {SiloAddress}. Current view: {CurrentView}"
+        )]
+        private static partial void LogTraceAddedServer(ILogger logger, SiloAddressLogValue siloAddress, VirtualBucketsRingProvider currentView);
+
+        [LoggerMessage(
+            EventId = (int)ErrorCode.CRP_Removed_Silo,
+            Level = LogLevel.Trace,
+            Message = "Removed Server {SiloAddress}. Current view: {CurrentView}"
+        )]
+        private static partial void LogTraceRemovedServer(ILogger logger, SiloAddressLogValue siloAddress, VirtualBucketsRingProvider currentView);
+
+        [LoggerMessage(
+            Level = LogLevel.Trace,
+            Message = "Calculated ring partition owner silo {Owner} for key {Key}: {Key} --> {OwnerHash}"
+        )]
+        private static partial void LogTraceCalculatedRingPartitionOwner(ILogger logger, SiloAddress owner, uint key, uint ownerHash);
     }
 }
 

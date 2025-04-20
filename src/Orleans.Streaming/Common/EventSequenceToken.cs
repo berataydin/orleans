@@ -89,17 +89,14 @@ namespace Orleans.Providers.Streams.Common
             
             var token = other as EventSequenceToken;
             if (token == null)
-                throw new ArgumentOutOfRangeException("other");
+                throw new ArgumentOutOfRangeException(nameof(other));
             
             int difference = SequenceNumber.CompareTo(token.SequenceNumber);
             return difference != 0 ? difference : EventIndex.CompareTo(token.EventIndex);
         }
 
         /// <inheritdoc />
-        public override int GetHashCode()
-        {
-            return (EventIndex * 397) ^ SequenceNumber.GetHashCode();
-        }
+        public override int GetHashCode() => HashCode.Combine(SequenceNumber, EventIndex);
 
         /// <inheritdoc />
         public override string ToString()

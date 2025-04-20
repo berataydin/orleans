@@ -1,10 +1,6 @@
-using System;
 using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Orleans;
-using Orleans.Runtime;
 using Orleans.Streams;
 using UnitTests.GrainInterfaces;
 
@@ -34,7 +30,7 @@ namespace UnitTests.Grains
 
         public Task OnErrorAsync(Exception ex)
         {
-            hostingGrain.logger.LogInformation(ex, "OnErrorAsync()", ex);
+            hostingGrain.logger.LogInformation(ex, "OnErrorAsync()");
             return Task.CompletedTask;
         }
     }
@@ -71,7 +67,7 @@ namespace UnitTests.Grains
         public Task StartPeriodicProducing()
         {
             logger.LogInformation("StartPeriodicProducing");
-            producerTimer = base.RegisterTimer(TimerCallback, null, TimeSpan.Zero, TimeSpan.FromMilliseconds(10));
+            producerTimer = this.RegisterGrainTimer(TimerCallback, TimeSpan.Zero, TimeSpan.FromMilliseconds(10));
             return Task.CompletedTask;
         }
 
@@ -100,7 +96,7 @@ namespace UnitTests.Grains
             return Fire();
         }
 
-        private Task TimerCallback(object state)
+        private Task TimerCallback()
         {
             return producerTimer != null? Fire(): Task.CompletedTask;
         }
@@ -231,7 +227,7 @@ namespace UnitTests.Grains
 
         public Task OnErrorAsync( Exception ex )
         {
-            logger.LogInformation(ex,  "OnErrorAsync()", ex );
+            logger.LogInformation(ex,  "OnErrorAsync()");
             return Task.CompletedTask;
         }
 
